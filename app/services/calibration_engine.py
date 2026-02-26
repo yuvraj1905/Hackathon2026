@@ -1,11 +1,29 @@
 from typing import Dict, Optional
 import re
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class CalibrationEngine:
     
     def __init__(self):
         self._calibration_data: Dict[str, Dict[str, float]] = {}
+    
+    def load_from_aggregated_data(self, aggregated_data: Dict[str, Dict]) -> None:
+        """
+        Load calibration data from CSV loader aggregated output.
+        
+        Args:
+            aggregated_data: Dict from CSVCalibrationLoader with avg_hours and sample_size
+        """
+        for feature_key, data in aggregated_data.items():
+            self._calibration_data[feature_key] = {
+                "total_hours": data["avg_hours"] * data["sample_size"],
+                "sample_size": data["sample_size"]
+            }
+        
+        logger.info(f"Loaded {len(self._calibration_data)} features into calibration engine")
     
     def _normalize_feature_name(self, name: str) -> str:
         """

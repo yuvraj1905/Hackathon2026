@@ -9,12 +9,24 @@ from app.services.template_expander import TemplateExpander
 from app.services.calibration_engine import CalibrationEngine
 from app.services.confidence_engine import ConfidenceEngine
 from app.services.planning_engine import PlanningEngine
+from app.services.csv_calibration_loader import CSVCalibrationLoader
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class ProjectPipeline:
     
-    def __init__(self):
+    def __init__(self, load_calibration: bool = True):
         self.calibration_engine = CalibrationEngine()
+        
+        if load_calibration:
+            try:
+                loader = CSVCalibrationLoader()
+                calibration_data = loader.load_all_calibrations()
+                self.calibration_engine.load_from_aggregated_data(calibration_data)
+            except Exception as e:
+                logger.warning(f"Failed to load calibration data: {str(e)}")
         
         self.domain_agent = DomainDetectionAgent()
         self.feature_agent = FeatureStructuringAgent()
@@ -75,7 +87,8 @@ class ProjectPipeline:
         
         confidence_score = ConfidenceEngine.calculate_confidence(
             estimated_features,
-            domain_result.get("confidence", 0.5)
+            domain_result.get("confidence", 0.5),
+            self.calibration_engine
         )
         
         tech_stack_result = await self.tech_stack_agent.execute({
@@ -127,7 +140,12 @@ class ProjectPipeline:
             "metadata": {
                 "pipeline_version": "1.0.0",
                 "feature_count": len(estimated_features),
-                "calibrated_features": sum(1 for f in estimated_features if f.get("was_calibrated", False))
+                "calibrated_features": sum(1 for f in estimated_features if f.get("was_calibrated", False)),
+                "calibration_coverage": round(
+                    sum(1 for f in estimated_features if f.get("was_calibrated", False)) / len(estimated_features) * 100
+                    if len(estimated_features) > 0 else 0,
+                    1
+                )
             }
         }
     
