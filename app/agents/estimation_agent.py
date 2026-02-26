@@ -1,6 +1,9 @@
 from typing import Dict, Any, List
+import logging
 from app.agents.base_agent import BaseAgent
 from app.services.calibration_engine import CalibrationEngine
+
+logger = logging.getLogger(__name__)
 
 
 class EstimationAgent(BaseAgent):
@@ -9,6 +12,12 @@ class EstimationAgent(BaseAgent):
         "low": 28,
         "medium": 72,
         "high": 140
+    }
+    
+    COMPLEXITY_FLOOR_HOURS = {
+        "low": 16,
+        "medium": 32,
+        "high": 64
     }
     
     BUFFER_MULTIPLIER = 1.15
@@ -55,10 +64,20 @@ class EstimationAgent(BaseAgent):
                 base_hours
             )
             
-            final_hours = calibrated_hours * self.BUFFER_MULTIPLIER * mvp_factor
-            
             calibration_info = self.calibration_engine.get_calibration_info(feature_name)
             was_calibrated = calibration_info is not None and calibration_info["sample_size"] >= 2
+            
+            if was_calibrated:
+                complexity_floor = self.COMPLEXITY_FLOOR_HOURS.get(complexity, 32)
+                
+                if calibrated_hours < complexity_floor:
+                    logger.debug(
+                        f"Applied floor to '{feature_name}': "
+                        f"{calibrated_hours:.1f}h → {complexity_floor}h ({complexity} complexity)"
+                    )
+                    calibrated_hours = complexity_floor
+            
+            final_hours = calibrated_hours * self.BUFFER_MULTIPLIER * mvp_factor
             
             estimated_features.append({
                 "name": feature_name,
