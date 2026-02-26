@@ -92,6 +92,14 @@ class ProjectRequest(BaseModel):
     timeline_constraint: Optional[str] = Field(None, description="Timeline constraints if any")
 
 
+class PlanningResult(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+    
+    phase_split: Dict[str, float] = Field(..., description="Hours split by phase")
+    team_recommendation: Dict[str, int] = Field(..., description="Recommended team composition")
+    category_breakdown: Dict[str, float] = Field(..., description="Hours by category")
+
+
 class FinalPipelineResponse(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
     
@@ -100,4 +108,5 @@ class FinalPipelineResponse(BaseModel):
     estimation: EstimationResult = Field(..., description="Estimation breakdown")
     tech_stack: TechStackRecommendation = Field(..., description="Recommended tech stack")
     proposal: ProposalResponse = Field(..., description="Final proposal document")
+    planning: PlanningResult = Field(..., description="Planning and resource allocation")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Pipeline metadata")

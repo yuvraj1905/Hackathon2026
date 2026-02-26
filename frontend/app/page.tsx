@@ -5,6 +5,7 @@ import { estimateProject, modifyScope, APIError, type EstimationResponse } from 
 import { EstimationTable } from "@/components/EstimationTable";
 import { EstimationSummary } from "@/components/EstimationSummary";
 import { ScopeModifier } from "@/components/ScopeModifier";
+import { PlanningBreakdown } from "@/components/PlanningBreakdown";
 
 export default function Home() {
   const [projectDescription, setProjectDescription] = useState("");
@@ -212,6 +213,8 @@ export default function Home() {
                 techStack={results.tech_stack}
                 domainConfidence={results.domain_detection.confidence}
               />
+
+              <PlanningBreakdown planning={results.planning} />
 
               <ScopeModifier onModify={handleModify} loading={modifying} />
 

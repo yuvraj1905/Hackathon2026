@@ -57,7 +57,7 @@ export function ScopeModifier({ onModify, loading }: ScopeModifierProps) {
             value={instruction}
             onChange={(e) => setInstruction(e.target.value)}
             placeholder="Modify scope (e.g., Add mobile app, Remove admin panel)"
-            className="flex-1 px-4 py-2.5 border border-indigo-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white text-sm"
+            className="text-black flex-1 px-4 py-2.5 border border-indigo-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white text-sm"
             disabled={loading}
           />
           <button

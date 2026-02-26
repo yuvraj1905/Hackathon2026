@@ -8,6 +8,7 @@ from app.agents.proposal_agent import ProposalAgent
 from app.services.template_expander import TemplateExpander
 from app.services.calibration_engine import CalibrationEngine
 from app.services.confidence_engine import ConfidenceEngine
+from app.services.planning_engine import PlanningEngine
 
 
 class ProjectPipeline:
@@ -94,6 +95,12 @@ class ProjectPipeline:
             confidence_score / 100
         )
         
+        planning_result = PlanningEngine.compute_planning(
+            total_hours=total_hours,
+            timeline_weeks=proposal_result.get("timeline_weeks", total_hours / 40),
+            features=formatted_features
+        )
+        
         return {
             "request_id": request_id,
             "domain_detection": domain_result,
@@ -112,6 +119,11 @@ class ProjectPipeline:
             },
             "tech_stack": tech_stack_result,
             "proposal": proposal_result,
+            "planning": {
+                "phase_split": planning_result["phase_breakdown"],
+                "team_recommendation": planning_result["team_recommendation"],
+                "category_breakdown": planning_result["category_totals"]
+            },
             "metadata": {
                 "pipeline_version": "1.0.0",
                 "feature_count": len(estimated_features),

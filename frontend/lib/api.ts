@@ -53,12 +53,19 @@ export interface Proposal {
   mitigation_strategies: string[];
 }
 
+export interface Planning {
+  phase_split: Record<string, number>;
+  team_recommendation: Record<string, number>;
+  category_breakdown: Record<string, number>;
+}
+
 export interface EstimationResponse {
   request_id: string;
   domain_detection: DomainDetection;
   estimation: Estimation;
   tech_stack: TechStack;
   proposal: Proposal;
+  planning: Planning;
   metadata: Record<string, any>;
 }
 
