@@ -63,7 +63,8 @@ class ProjectPipeline:
         features = feature_result.get("features", [])
         
         estimation_result = await self.estimation_agent.execute({
-            "features": features
+            "features": features,
+            "original_description": description
         })
         
         estimated_features = estimation_result.get("features", [])

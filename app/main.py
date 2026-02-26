@@ -5,7 +5,11 @@ import logging
 from dotenv import load_dotenv
 
 from app.models.project_models import ProjectRequest, FinalPipelineResponse
+from app.models.modification_models import ModificationRequest, ModificationResponse
 from app.orchestrator.project_pipeline import ProjectPipeline
+from app.agents.modification_agent import ModificationAgent
+from app.agents.estimation_agent import EstimationAgent
+from app.services.calibration_engine import CalibrationEngine
 
 load_dotenv()
 
@@ -16,13 +20,19 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 pipeline: ProjectPipeline = None
+modification_agent: ModificationAgent = None
+calibration_engine: CalibrationEngine = None
+estimation_agent: EstimationAgent = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global pipeline
+    global pipeline, modification_agent, calibration_engine, estimation_agent
     logger.info("Initializing estimation pipeline...")
     pipeline = ProjectPipeline()
+    calibration_engine = CalibrationEngine()
+    estimation_agent = EstimationAgent(calibration_engine=calibration_engine)
+    modification_agent = ModificationAgent()
     logger.info("Pipeline ready")
     yield
     logger.info("Shutting down...")
@@ -80,3 +90,110 @@ async def estimate_project(request: ProjectRequest) -> FinalPipelineResponse:
     except Exception as e:
         logger.error(f"Pipeline error: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal estimation error")
+
+
+@app.post("/modify", response_model=ModificationResponse)
+async def modify_scope(request: ModificationRequest) -> ModificationResponse:
+    """
+    Modify project scope and re-estimate.
+    
+    Args:
+        request: Current features and modification instruction
+        
+    Returns:
+        Updated estimation with modified features
+    """
+    try:
+        logger.info(f"Processing modification: {request.instruction[:100]}...")
+        
+        current_features_list = [
+            {
+                "name": f.name,
+                "category": f.category,
+                "complexity": f.complexity
+            }
+            for f in request.current_features
+        ]
+        
+        modification_result = await modification_agent.execute({
+            "current_features": current_features_list,
+            "instruction": request.instruction
+        })
+        
+        updated_features = modification_result.get("features", [])
+        
+        estimation_result = await estimation_agent.execute({
+            "features": updated_features,
+            "original_description": request.instruction
+        })
+        
+        estimated_features = estimation_result.get("features", [])
+        total_hours = estimation_result.get("total_hours", 0)
+        min_hours = estimation_result.get("min_hours", 0)
+        max_hours = estimation_result.get("max_hours", 0)
+        
+        formatted_features = []
+        for feature in estimated_features:
+            formatted_features.append({
+                "name": feature.get("name", ""),
+                "description": feature.get("category", "Core"),
+                "complexity": feature.get("complexity", "Medium").lower(),
+                "estimated_hours": feature.get("final_hours", 0.0),
+                "dependencies": [],
+                "confidence_score": 0.75
+            })
+        
+        changes_summary = _generate_changes_summary(
+            current_features_list,
+            updated_features
+        )
+        
+        logger.info(f"Modification completed: {len(updated_features)} features")
+        
+        return ModificationResponse(
+            total_hours=total_hours,
+            min_hours=min_hours,
+            max_hours=max_hours,
+            features=formatted_features,
+            changes_summary=changes_summary
+        )
+        
+    except ValueError as e:
+        logger.error(f"Validation error: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    except Exception as e:
+        logger.error(f"Modification error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal modification error")
+
+
+def _generate_changes_summary(
+    old_features: list,
+    new_features: list
+) -> str:
+    """
+    Generate a summary of changes made.
+    
+    Args:
+        old_features: Original feature list
+        new_features: Updated feature list
+        
+    Returns:
+        Human-readable changes summary
+    """
+    old_names = {f.get("name", "") for f in old_features}
+    new_names = {f.get("name", "") for f in new_features}
+    
+    added = new_names - old_names
+    removed = old_names - new_names
+    
+    changes = []
+    
+    if added:
+        changes.append(f"Added {len(added)} feature(s)")
+    if removed:
+        changes.append(f"Removed {len(removed)} feature(s)")
+    if not added and not removed:
+        changes.append("Modified existing features")
+    
+    return ", ".join(changes) if changes else "No changes detected"

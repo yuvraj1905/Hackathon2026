@@ -68,9 +68,28 @@ Respond with ONLY valid JSON. No markdown, no explanation."""
         except ValueError:
             domain_enum = Domain.UNKNOWN
         
+        raw_confidence = float(parsed.get("confidence", 0.75))
+        realistic_confidence = self._normalize_confidence(raw_confidence)
+        
         return {
             "detected_domain": domain_enum.value,
-            "confidence": float(parsed.get("confidence", 0.5)),
+            "confidence": realistic_confidence,
             "secondary_domains": [],
             "reasoning": parsed.get("reasoning", "Domain classification completed")
         }
+    
+    def _normalize_confidence(self, raw_confidence: float) -> float:
+        """
+        Normalize confidence to realistic presales range (0.65-0.95).
+        
+        Args:
+            raw_confidence: Raw confidence from LLM (0.0-1.0)
+            
+        Returns:
+            Normalized confidence (0.65-0.95)
+        """
+        clamped = max(0.0, min(1.0, raw_confidence))
+        
+        normalized = 0.65 + (clamped * 0.30)
+        
+        return round(normalized, 2)
