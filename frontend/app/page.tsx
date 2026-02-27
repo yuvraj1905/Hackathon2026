@@ -1,11 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { estimateProject, modifyScope, APIError, type EstimationResponse } from "@/lib/api";
+import { 
+  estimateProject, 
+  estimateProjectStream, 
+  modifyScope, 
+  APIError, 
+  type EstimationResponse,
+  type StreamEvent 
+} from "@/lib/api";
 import { EstimationTable } from "@/components/EstimationTable";
 import { EstimationSummary } from "@/components/EstimationSummary";
 import { ScopeModifier } from "@/components/ScopeModifier";
 import { PlanningBreakdown } from "@/components/PlanningBreakdown";
+import { ProgressIndicator } from "@/components/ProgressIndicator";
 
 export default function Home() {
   const [projectDescription, setProjectDescription] = useState("");
@@ -14,6 +22,8 @@ export default function Home() {
   const [results, setResults] = useState<EstimationResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [modifying, setModifying] = useState(false);
+  const [streamingEnabled, setStreamingEnabled] = useState(true);
+  const [currentStage, setCurrentStage] = useState<StreamEvent | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,15 +35,24 @@ export default function Home() {
 
     setLoading(true);
     setResults(null);
+    setCurrentStage(null);
+
+    const payload = {
+      project_description: projectDescription,
+      budget_range: budgetRange || null,
+      timeline_constraint: timelineConstraint || null,
+    };
 
     try {
-      const data = await estimateProject({
-        project_description: projectDescription,
-        budget_range: budgetRange || null,
-        timeline_constraint: timelineConstraint || null,
-      });
-
-      setResults(data);
+      if (streamingEnabled) {
+        const data = await estimateProjectStream(payload, (event) => {
+          setCurrentStage(event);
+        });
+        setResults(data);
+      } else {
+        const data = await estimateProject(payload);
+        setResults(data);
+      }
     } catch (error) {
       console.error("Error:", error);
 
@@ -44,6 +63,7 @@ export default function Home() {
       }
     } finally {
       setLoading(false);
+      setCurrentStage(null);
     }
   };
 
@@ -92,7 +112,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
       <div className="container mx-auto px-4 py-8 max-w-7xl">
-        <header className="mb-12 text-center">
+        <header className="mb-8 text-center">
           <h1 className="text-4xl font-bold text-slate-900 mb-2">
             Presales Estimation Engine
           </h1>
@@ -100,6 +120,12 @@ export default function Home() {
             AI-powered project estimation for GeekyAnts presales team
           </p>
         </header>
+
+        {loading && currentStage && (
+          <div className="mb-8">
+            <ProgressIndicator stage={currentStage.stage} data={currentStage} />
+          </div>
+        )}
 
         <div className="grid gap-8">
           <div className="bg-white rounded-lg shadow-lg p-6">

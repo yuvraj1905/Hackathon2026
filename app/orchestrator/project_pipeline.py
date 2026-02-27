@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Dict, Any, AsyncGenerator, Optional, Callable
 import uuid
 from app.agents.domain_detection_agent import DomainDetectionAgent
 from app.agents.feature_structuring_agent import FeatureStructuringAgent
@@ -38,16 +38,7 @@ class ProjectPipeline:
     
     async def run(self, project_input: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Execute full estimation pipeline.
-        
-        Flow:
-        1. Detect domain
-        2. Expand with templates
-        3. Structure features
-        4. Estimate hours
-        5. Calculate confidence
-        6. Recommend tech stack
-        7. Generate proposal
+        Execute full estimation pipeline (non-streaming).
         
         Args:
             project_input: Dict with 'description' key
@@ -55,8 +46,33 @@ class ProjectPipeline:
         Returns:
             Complete pipeline response
         """
+        result = None
+        
+        async for event in self.run_streaming(project_input):
+            if event.get("stage") == "completed":
+                result = event.get("result")
+        
+        return result
+    
+    async def run_streaming(
+        self,
+        project_input: Dict[str, Any],
+        progress_callback: Optional[Callable[[str, Dict], None]] = None
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        Execute pipeline with streaming progress updates.
+        
+        Args:
+            project_input: Dict with 'description' key
+            progress_callback: Optional callback for progress events
+            
+        Yields:
+            Progress events and final result
+        """
         request_id = str(uuid.uuid4())
         description = project_input.get("description", "")
+        
+        yield {"stage": "domain_detection_started"}
         
         domain_result = await self.domain_agent.execute({
             "description": description
@@ -64,16 +80,31 @@ class ProjectPipeline:
         
         detected_domain = domain_result.get("detected_domain", "unknown")
         
+        yield {
+            "stage": "domain_detection_done",
+            "domain": detected_domain,
+            "confidence": domain_result.get("confidence")
+        }
+        
         enriched_description = TemplateExpander.expand(
-            detected_domain, 
+            detected_domain,
             description
         )
+        
+        yield {"stage": "feature_structuring_started"}
         
         feature_result = await self.feature_agent.execute({
             "enriched_description": enriched_description
         })
         
         features = feature_result.get("features", [])
+        
+        yield {
+            "stage": "feature_structuring_done",
+            "feature_count": len(features)
+        }
+        
+        yield {"stage": "estimation_started"}
         
         estimation_result = await self.estimation_agent.execute({
             "features": features,
@@ -84,6 +115,12 @@ class ProjectPipeline:
         total_hours = estimation_result.get("total_hours", 0)
         min_hours = estimation_result.get("min_hours", 0)
         max_hours = estimation_result.get("max_hours", 0)
+        
+        yield {
+            "stage": "estimation_done",
+            "total_hours": total_hours,
+            "feature_count": len(estimated_features)
+        }
         
         confidence_score = ConfidenceEngine.calculate_confidence(
             estimated_features,
@@ -96,6 +133,8 @@ class ProjectPipeline:
             "features": features
         })
         
+        yield {"stage": "proposal_started"}
+        
         proposal_result = await self.proposal_agent.execute({
             "domain": detected_domain,
             "features": estimated_features,
@@ -104,7 +143,7 @@ class ProjectPipeline:
         })
         
         formatted_features = self._format_features_for_response(
-            estimated_features, 
+            estimated_features,
             confidence_score / 100
         )
         
@@ -114,7 +153,7 @@ class ProjectPipeline:
             features=formatted_features
         )
         
-        return {
+        final_result = {
             "request_id": request_id,
             "domain_detection": domain_result,
             "estimation": {
@@ -148,6 +187,8 @@ class ProjectPipeline:
                 )
             }
         }
+        
+        yield {"stage": "completed", "result": final_result}
     
     def _format_features_for_response(
         self, 

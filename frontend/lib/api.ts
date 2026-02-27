@@ -185,3 +185,87 @@ export async function modifyScope(
     throw new APIError("An unexpected error occurred");
   }
 }
+
+export interface StreamEvent {
+  stage: string;
+  domain?: string;
+  confidence?: number;
+  feature_count?: number;
+  total_hours?: number;
+  result?: EstimationResponse;
+  message?: string;
+}
+
+export async function estimateProjectStream(
+  payload: EstimationRequest,
+  onProgress: (event: StreamEvent) => void
+): Promise<EstimationResponse> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/estimate/stream`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new APIError(
+        errorData.detail || "Streaming estimation failed",
+        response.status,
+        errorData
+      );
+    }
+
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
+
+    if (!reader) {
+      throw new APIError("No response stream available");
+    }
+
+    let finalResult: EstimationResponse | null = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+
+      if (done) break;
+
+      const chunk = decoder.decode(value, { stream: true });
+      const lines = chunk.split("\n");
+
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          const jsonStr = line.slice(6);
+          try {
+            const event = JSON.parse(jsonStr) as StreamEvent;
+            onProgress(event);
+
+            if (event.stage === "completed" && event.result) {
+              finalResult = event.result;
+            }
+          } catch (e) {
+            console.error("Failed to parse SSE event:", e);
+          }
+        }
+      }
+    }
+
+    if (!finalResult) {
+      throw new APIError("No final result received from stream");
+    }
+
+    return finalResult;
+  } catch (error) {
+    if (error instanceof APIError) {
+      throw error;
+    }
+
+    if (error instanceof TypeError) {
+      throw new APIError("Network error. Please check if the backend is running.");
+    }
+
+    throw new APIError("An unexpected error occurred during streaming");
+  }
+}

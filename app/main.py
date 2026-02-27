@@ -1,7 +1,9 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from contextlib import asynccontextmanager
 import logging
+import json
 from dotenv import load_dotenv
 
 from app.models.project_models import ProjectRequest, FinalPipelineResponse
@@ -197,3 +199,37 @@ def _generate_changes_summary(
         changes.append("Modified existing features")
     
     return ", ".join(changes) if changes else "No changes detected"
+
+
+@app.post("/estimate/stream")
+async def estimate_project_stream(request: ProjectRequest):
+    """
+    Execute estimation pipeline with streaming progress updates.
+    
+    Args:
+        request: Project request with description and optional context
+        
+    Returns:
+        Server-Sent Events stream with stage-by-stage progress
+    """
+    async def event_generator():
+        try:
+            async for event in pipeline.run_streaming({
+                "description": request.project_description,
+                "additional_context": request.additional_context,
+                "preferred_tech_stack": request.preferred_tech_stack
+            }):
+                yield f"data: {json.dumps(event)}\n\n"
+                
+        except Exception as e:
+            logger.error(f"Streaming error: {str(e)}")
+            yield f"data: {json.dumps({'stage': 'error', 'message': str(e)})}\n\n"
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        }
+    )
