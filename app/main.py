@@ -1,18 +1,30 @@
-from fastapi import FastAPI, HTTPException, Request, UploadFile
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+import json
 import logging
+from pathlib import Path
+from typing import Optional
+from uuid import UUID
 from dotenv import load_dotenv
 
 from app.models.project_models import ProjectRequest, FinalPipelineResponse
 from app.models.modification_models import ModificationRequest, ModificationResponse
+from app.models.user_models import UserLogin, TokenResponse, UserResponse, UserInDB
+from app.models.document_models import DocumentUploadResponse, DocumentResponse
 from app.orchestrator.project_pipeline import ProjectPipeline
 from app.agents.modification_agent import ModificationAgent
 from app.agents.estimation_agent import EstimationAgent
 from app.services.calibration_engine import CalibrationEngine
 from app.services.database import db
 from app.services.document_parser import extract_text_from_upload
+from app.services.document_cleaner import clean_extracted_text_with_llm, should_use_llm_cleanup
 from app.services.input_fusion_service import build_final_description
+from app.services.auth_service import (
+    authenticate_user,
+    create_access_token,
+    get_current_user,
+)
 
 load_dotenv()
 
@@ -70,10 +82,176 @@ async def health_check():
     }
 
 
+@app.post("/auth/login", response_model=TokenResponse)
+async def login(credentials: UserLogin) -> TokenResponse:
+    """
+    Authenticate user and return JWT access token.
+    
+    Args:
+        credentials: Email and password
+        
+    Returns:
+        JWT access token and user details
+    """
+    user = await authenticate_user(credentials.email, credentials.password)
+    
+    if user is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid email or password",
+        )
+    
+    access_token = create_access_token(user.id, user.email)
+    
+    logger.info("User logged in: email=%s", user.email)
+    
+    return TokenResponse(
+        access_token=access_token,
+        token_type="bearer",
+        user=UserResponse(
+            id=user.id,
+            email=user.email,
+            created_at=user.created_at,
+        ),
+    )
+
+
+@app.post("/upload", response_model=DocumentUploadResponse)
+async def upload_document(
+    request: Request,
+    current_user: UserInDB = Depends(get_current_user),
+) -> DocumentUploadResponse:
+    """
+    Upload a document for parsing and storage.
+    
+    Extracts text from PDF/DOCX, optionally cleans with LLM, and stores in database.
+    Returns document_id for use in subsequent /estimate calls.
+    
+    Args:
+        request: Multipart form data with file and optional fields
+        current_user: Authenticated user (from JWT token)
+        
+    Returns:
+        Document ID and extraction preview
+    """
+    try:
+        content_type = (request.headers.get("content-type") or "").lower()
+        
+        if "multipart/form-data" not in content_type:
+            raise HTTPException(
+                status_code=415,
+                detail="Content-Type must be multipart/form-data",
+            )
+        
+        form = await request.form()
+        
+        file_item = form.get("file")
+        if file_item is None or not hasattr(file_item, "filename") or not file_item.filename:
+            raise HTTPException(
+                status_code=400,
+                detail="File is required",
+            )
+        
+        filename = file_item.filename
+        extension = Path(filename).suffix.lower().lstrip(".")
+        
+        if extension not in {"pdf", "docx", "xlsx", "xls"}:
+            raise HTTPException(
+                status_code=400,
+                detail="Unsupported file type. Allowed: pdf, docx, xlsx, xls",
+            )
+        
+        file_content = await file_item.read()
+        file_size = len(file_content)
+        await file_item.seek(0)
+        
+        extracted_text = await extract_text_from_upload(file_item)
+        
+        if should_use_llm_cleanup(extracted_text, file_size):
+            try:
+                extracted_text = await clean_extracted_text_with_llm(extracted_text)
+            except Exception as e:
+                logger.warning("LLM cleanup failed, using raw extraction: %s", str(e))
+        
+        manual_input_raw = form.get("additional_details")
+        manual_input = (
+            str(manual_input_raw).strip()
+            if manual_input_raw is not None and str(manual_input_raw).strip()
+            else None
+        )
+        
+        build_options_raw = form.get("build_options")
+        build_options: list[str] = []
+        if build_options_raw is not None and str(build_options_raw).strip():
+            raw = str(build_options_raw).strip()
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, list):
+                    build_options = [str(x).strip().lower() for x in parsed if x]
+            except json.JSONDecodeError:
+                build_options = [p.strip().lower() for p in raw.split(",") if p.strip()]
+        
+        allowed = {"mobile", "web", "design", "backend", "admin"}
+        build_options = [x for x in build_options if x in allowed]
+        
+        fused_description = build_final_description(manual_input, extracted_text)
+        
+        async with db.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO documents (
+                    user_id, filename, file_type, extracted_text, 
+                    manual_input, build_options, fused_description, status
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, 'uploaded')
+                RETURNING id, created_at
+                """,
+                current_user.id,
+                filename,
+                extension,
+                extracted_text,
+                manual_input,
+                build_options,
+                fused_description,
+            )
+        
+        document_id = row["id"]
+        
+        logger.info(
+            "Document uploaded: id=%s user=%s filename=%s chars=%d",
+            document_id,
+            current_user.email,
+            filename,
+            len(extracted_text),
+        )
+        
+        return DocumentUploadResponse(
+            document_id=document_id,
+            filename=filename,
+            file_type=extension,
+            extracted_preview=extracted_text[:500] + ("..." if len(extracted_text) > 500 else ""),
+            status="uploaded",
+        )
+        
+    except HTTPException:
+        raise
+    except ValueError as e:
+        logger.error("Document upload validation error: %s", str(e))
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("Document upload failed")
+        raise HTTPException(status_code=500, detail="Failed to process document")
+
+
 @app.post("/estimate", response_model=FinalPipelineResponse)
 async def estimate_project(request: Request) -> FinalPipelineResponse:
     """
     Execute full estimation pipeline for a project.
+    
+    Supports three input modes:
+    1. document_id: Use a previously uploaded document from /upload
+    2. file upload: Upload a new document via multipart/form-data
+    3. manual input: Provide additional_details text directly
     
     Args:
         request: Project request with description and optional context
@@ -84,25 +262,58 @@ async def estimate_project(request: Request) -> FinalPipelineResponse:
     try:
         content_type = (request.headers.get("content-type") or "").lower()
 
-        project_description = None
+        additional_details = None
         extracted_text = None
         additional_context = None
         preferred_tech_stack = None
+        build_options = []
+        final_description = None
+        document_id = None
 
         if "application/json" in content_type:
             body = await request.json()
             json_payload = ProjectRequest(**body)
-            project_description = json_payload.project_description
+            
+            if json_payload.document_id:
+                try:
+                    doc_uuid = UUID(json_payload.document_id)
+                except ValueError:
+                    raise HTTPException(status_code=400, detail="Invalid document_id format")
+                
+                async with db.pool.acquire() as conn:
+                    doc_row = await conn.fetchrow(
+                        """
+                        SELECT fused_description, build_options, status 
+                        FROM documents WHERE id = $1
+                        """,
+                        doc_uuid,
+                    )
+                
+                if doc_row is None:
+                    raise HTTPException(status_code=404, detail="Document not found")
+                
+                final_description = doc_row["fused_description"]
+                build_options = list(doc_row["build_options"] or [])
+                document_id = json_payload.document_id
+                
+                await db.pool.execute(
+                    "UPDATE documents SET status = 'processing' WHERE id = $1",
+                    doc_uuid,
+                )
+            else:
+                additional_details = json_payload.additional_details
+                build_options = list(json_payload.build_options) if json_payload.build_options else []
+            
             additional_context = json_payload.additional_context
             preferred_tech_stack = json_payload.preferred_tech_stack
 
         elif "multipart/form-data" in content_type:
             form = await request.form()
 
-            project_description_raw = form.get("project_description")
-            project_description = (
-                str(project_description_raw).strip()
-                if project_description_raw is not None
+            additional_details_raw = form.get("additional_details")
+            additional_details = (
+                str(additional_details_raw).strip()
+                if additional_details_raw is not None
                 else None
             )
 
@@ -130,8 +341,25 @@ async def estimate_project(request: Request) -> FinalPipelineResponse:
                     if part.strip()
                 ]
 
-            # These are accepted for compatibility in multipart payloads.
-            _ = form.get("budget_range")
+            build_options_raw = form.get("build_options")
+            if build_options_raw is not None and str(build_options_raw).strip():
+                raw = str(build_options_raw).strip()
+                try:
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, list):
+                        build_options = [str(x).strip().lower() for x in parsed if x]
+                    else:
+                        build_options = []
+                except json.JSONDecodeError:
+                    build_options = [
+                        part.strip().lower()
+                        for part in raw.split(",")
+                        if part.strip()
+                    ]
+            # Restrict to allowed build options only
+            allowed = {"mobile", "web", "design", "backend", "admin"}
+            build_options = [x for x in build_options if x in allowed]
+
             _ = form.get("timeline_constraint")
 
         else:
@@ -140,16 +368,25 @@ async def estimate_project(request: Request) -> FinalPipelineResponse:
                 detail="Unsupported Content-Type. Use application/json or multipart/form-data.",
             )
 
-        final_description = build_final_description(project_description, extracted_text)
+        if final_description is None:
+            has_manual = bool((additional_details or "").strip()) and len((additional_details or "").strip()) >= 10
+            has_file = bool((extracted_text or "").strip())
+            if not has_manual and not has_file:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Provide additional details (at least 10 characters), upload a document, or use document_id.",
+                )
 
-        has_manual = bool((project_description or "").strip())
-        has_file = bool((extracted_text or "").strip())
-        if has_manual and has_file:
-            input_mode = "hybrid"
-        elif has_file:
-            input_mode = "file_only"
+            final_description = build_final_description(additional_details, extracted_text)
+
+            if has_manual and has_file:
+                input_mode = "hybrid"
+            elif has_file:
+                input_mode = "file_only"
+            else:
+                input_mode = "manual_only"
         else:
-            input_mode = "manual_only"
+            input_mode = "document_id"
 
         logger.info(
             "Processing estimation request mode=%s description_len=%d",
@@ -161,8 +398,19 @@ async def estimate_project(request: Request) -> FinalPipelineResponse:
         result = await pipeline.run({
             "description": final_description,
             "additional_context": additional_context,
-            "preferred_tech_stack": preferred_tech_stack
+            "preferred_tech_stack": preferred_tech_stack,
+            "build_options": build_options,
         })
+
+        if document_id:
+            try:
+                doc_uuid = UUID(document_id)
+                await db.pool.execute(
+                    "UPDATE documents SET status = 'completed', updated_at = NOW() WHERE id = $1",
+                    doc_uuid,
+                )
+            except Exception as e:
+                logger.warning("Failed to update document status: %s", str(e))
 
         logger.info(
             "Estimation completed: %s mode=%s",

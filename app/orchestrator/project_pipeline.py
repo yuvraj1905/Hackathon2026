@@ -39,10 +39,10 @@ class ProjectPipeline:
     async def run(self, project_input: Dict[str, Any]) -> Dict[str, Any]:
         """
         Execute full estimation pipeline (non-streaming).
-        
+
         Args:
-            project_input: Dict with 'description' key
-            
+            project_input: Dict with 'description'; optional 'additional_context', 'preferred_tech_stack', 'build_options' (mobile|web|design|backend|admin for LLM use).
+
         Returns:
             Complete pipeline response
         """
@@ -61,11 +61,11 @@ class ProjectPipeline:
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Execute pipeline with streaming progress updates.
-        
+
         Args:
-            project_input: Dict with 'description' key
-            progress_callback: Optional callback for progress events
-            
+            project_input: Dict with 'description'; optional 'additional_context', 'preferred_tech_stack', 'build_options'.
+            progress_callback: Optional callback for progress events.
+
         Yields:
             Progress events and final result
         """

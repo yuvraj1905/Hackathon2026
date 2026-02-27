@@ -1,6 +1,9 @@
 from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 from enum import Enum
+
+# Allowed values for what the client wants to build (mobile, web, design, backend, admin)
+BuildOption = Literal["mobile", "web", "design", "backend", "admin"]
 
 
 class Domain(str, Enum):
@@ -85,10 +88,14 @@ class ProposalResponse(BaseModel):
 class ProjectRequest(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
     
-    project_description: str = Field(..., min_length=10, description="Client's project description")
+    document_id: Optional[str] = Field(None, description="ID of previously uploaded document (UUID)")
+    additional_details: Optional[str] = Field(None, description="Additional details from the client (manual input)")
+    build_options: List[BuildOption] = Field(
+        default_factory=list,
+        description="What the client wants to build: mobile, web, design, backend, admin",
+    )
     additional_context: Optional[str] = Field(None, description="Any additional context or requirements")
     preferred_tech_stack: Optional[List[str]] = Field(None, description="Client's preferred technologies")
-    budget_range: Optional[str] = Field(None, description="Budget constraints if any")
     timeline_constraint: Optional[str] = Field(None, description="Timeline constraints if any")
 
 
