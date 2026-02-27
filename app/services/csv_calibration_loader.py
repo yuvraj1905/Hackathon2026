@@ -71,6 +71,7 @@ class CSVCalibrationLoader:
     def _process_excel_file(self, file_path: Path) -> List[Tuple[str, float, str]]:
         """
         Process all sheets in an Excel file.
+        Tries openpyxl first; falls back to calamine for files with invalid/corrupt stylesheet XML.
         
         Args:
             file_path: Path to Excel file
@@ -79,52 +80,88 @@ class CSVCalibrationLoader:
             List of tuples (feature_name, hours, source)
         """
         records = []
-        
+        sheet_names: List[str] = []
+        engine: Optional[str] = None
+
         try:
             workbook = load_workbook(file_path, read_only=True, data_only=True)
             sheet_names = workbook.sheetnames
-            
-            logger.info(f"Processing {file_path.name} with {len(sheet_names)} sheet(s)")
-            
-            for sheet_name in sheet_names:
-                try:
-                    sheet_records = self._process_sheet(file_path, sheet_name)
-                    if sheet_records:
-                        records.extend(sheet_records)
-                        logger.debug(f"  ✓ {sheet_name}: {len(sheet_records)} records")
-                    else:
-                        logger.debug(f"  ✗ {sheet_name}: skipped (no valid data)")
-                except Exception as e:
-                    logger.warning(f"  ✗ {sheet_name}: error - {str(e)}")
-                    continue
-            
             workbook.close()
-            
         except Exception as e:
-            logger.error(f"Failed to open workbook {file_path.name}: {str(e)}")
-            raise
-        
+            logger.warning(
+                f"Openpyxl failed for {file_path.name} (e.g. invalid stylesheet XML): {e}. "
+                "Trying calamine engine..."
+            )
+            try:
+                excel_file = pd.ExcelFile(file_path, engine="calamine")
+                sheet_names = excel_file.sheet_names
+                engine = "calamine"
+            except ImportError:
+                logger.error(
+                    f"python-calamine not installed. Install with: pip install python-calamine. "
+                    f"Skipping {file_path.name}"
+                )
+                return []
+            except Exception as calamine_err:
+                logger.error(f"Failed to open workbook {file_path.name}: {calamine_err}")
+                raise
+
+        if not sheet_names:
+            logger.warning(f"No sheets found in {file_path.name}")
+            return []
+
+        logger.info(f"Processing {file_path.name} with {len(sheet_names)} sheet(s)")
+
+        for sheet_name in sheet_names:
+            try:
+                sheet_records = self._process_sheet(file_path, sheet_name, engine=engine)
+                if sheet_records:
+                    records.extend(sheet_records)
+                    logger.debug(f"  ✓ {sheet_name}: {len(sheet_records)} records")
+                else:
+                    logger.debug(f"  ✗ {sheet_name}: skipped (no valid data)")
+            except Exception as e:
+                logger.warning(f"  ✗ {sheet_name}: error - {str(e)}")
+                continue
+
         return records
     
-    def _process_sheet(self, file_path: Path, sheet_name: str) -> List[Tuple[str, float, str]]:
+    def _process_sheet(
+        self,
+        file_path: Path,
+        sheet_name: str,
+        engine: Optional[str] = None,
+    ) -> List[Tuple[str, float, str]]:
         """
         Process a single sheet and extract feature-hour pairs.
         
         Args:
             file_path: Path to Excel file
             sheet_name: Name of sheet to process
+            engine: Optional engine to use ('openpyxl', 'calamine', 'xlrd'). If None, tries openpyxl then xlrd.
             
         Returns:
             List of tuples (feature_name, hours, source)
         """
-        try:
-            df = pd.read_excel(file_path, sheet_name=sheet_name, engine='openpyxl')
-        except Exception:
+        df = None
+        if engine:
             try:
-                df = pd.read_excel(file_path, sheet_name=sheet_name, engine='xlrd')
+                df = pd.read_excel(file_path, sheet_name=sheet_name, engine=engine)
             except Exception as e:
-                logger.debug(f"Cannot read sheet {sheet_name}: {str(e)}")
+                logger.debug(f"Cannot read sheet {sheet_name} with {engine}: {str(e)}")
                 return []
+        else:
+            try:
+                df = pd.read_excel(file_path, sheet_name=sheet_name, engine="openpyxl")
+            except Exception:
+                try:
+                    df = pd.read_excel(file_path, sheet_name=sheet_name, engine="xlrd")
+                except Exception as e:
+                    logger.debug(f"Cannot read sheet {sheet_name}: {str(e)}")
+                    return []
+
+        if df is None:
+            return []
         
         if df.empty or len(df.columns) == 0:
             return []
