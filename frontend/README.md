@@ -44,5 +44,5 @@ components/
 1. Start backend: `uvicorn app.main:app --reload` (from root)
 2. Start frontend: `npm run dev` (from frontend/)
 3. Open http://localhost:3000
-4. Enter project description
+4. Enter additional details and select what to build (mobile, web, design, backend, admin)
 5. View estimation results

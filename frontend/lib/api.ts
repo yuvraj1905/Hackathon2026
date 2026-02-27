@@ -1,10 +1,14 @@
+import type { BuildOption } from "./constants";
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+export type { BuildOption } from "./constants";
+
 export interface EstimationRequest {
-  project_description?: string;
+  additional_details?: string | null;
+  build_options?: BuildOption[];
   additional_context?: string | null;
   preferred_tech_stack?: string[] | null;
-  budget_range?: string | null;
   timeline_constraint?: string | null;
   file?: File | null;
 }
@@ -90,11 +94,11 @@ export async function estimateProject(
     if (payload.file) {
       const formData = new FormData();
       formData.append("file", payload.file);
-      if (payload.project_description) {
-        formData.append("project_description", payload.project_description);
+      if (payload.additional_details) {
+        formData.append("additional_details", payload.additional_details);
       }
-      if (payload.budget_range) {
-        formData.append("budget_range", payload.budget_range);
+      if (payload.build_options?.length) {
+        formData.append("build_options", JSON.stringify(payload.build_options));
       }
       if (payload.timeline_constraint) {
         formData.append("timeline_constraint", payload.timeline_constraint);

@@ -71,13 +71,13 @@ The system supports **three input modes**:
 ### Document Parser
 
 **File:** `app/services/document_parser.py`  
-**Type:** Static/Deterministic
+**Type:** Static/Deterministic + Optional LLM Cleanup
 
 Extracts text from uploaded business documents (PRDs, specifications, etc.)
 
 **Supported Formats:**
-- `.pdf` - PDF documents (using `pypdf`)
-- `.docx` - Word documents (using `python-docx`)
+- `.pdf` - PDF documents (using `pdfplumber` with table extraction)
+- `.docx` - Word documents (using `python-docx` with tables and headers/footers)
 - `.xlsx` / `.xls` - Excel spreadsheets (using `pandas` + `openpyxl`/`xlrd`)
 
 **Constraints:**
@@ -85,13 +85,20 @@ Extracts text from uploaded business documents (PRDs, specifications, etc.)
 MAX_FILE_SIZE_MB = 10
 MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
 MAX_OUTPUT_CHARS = 12000
-PARSE_TIMEOUT_SECONDS = 20
+PARSE_TIMEOUT_SECONDS = 30
 ```
+
+**Features:**
+- **PDF:** Layout-aware extraction with table support (pdfplumber)
+- **DOCX:** Extracts paragraphs, tables, headers, and footers
+- **Tables:** Formatted as markdown-style pipe-separated rows
+- **LLM Cleanup:** Optional post-processing to fix OCR errors and normalize formatting
 
 **Text Cleaning:**
 - Removes null characters
 - Collapses multiple spaces/tabs
 - Limits consecutive newlines to 2
+- Adds truncation marker when content exceeds limit
 
 ### Input Fusion Service
 
@@ -157,10 +164,10 @@ else:
 
 ## Detailed Component Breakdown
 
-### 0. Document Parser (NEW)
+### 0. Document Parser (UPGRADED)
 
 **File:** `app/services/document_parser.py`  
-**Type:** Static/Deterministic
+**Type:** Static/Deterministic + Optional LLM Cleanup
 
 **Purpose:** Extract clean text from uploaded PRD documents for feature extraction.
 
@@ -168,38 +175,53 @@ else:
 
 | Extension | Library | Notes |
 |-----------|---------|-------|
-| `.pdf` | `pypdf` | Extracts text page by page, skips unreadable pages |
-| `.docx` | `python-docx` | Extracts all paragraphs |
+| `.pdf` | `pdfplumber` | Layout-aware extraction with table support |
+| `.docx` | `python-docx` | Extracts paragraphs, tables, headers, footers |
 | `.xlsx` | `pandas` + `openpyxl` | Converts all sheets to text with pipe separators |
 | `.xls` | `pandas` + `xlrd` | Legacy Excel format support |
 
-**PDF Extraction:**
+**PDF Extraction (with tables):**
 ```python
 def _extract_pdf_text(content: bytes) -> str:
-    reader = PdfReader(BytesIO(content))
-    chunks = []
-    for page in reader.pages:
-        page_text = page.extract_text() or ""
-        if page_text.strip():
-            chunks.append(page_text.strip())
-    return "\n\n".join(chunks)
+    with pdfplumber.open(BytesIO(content)) as pdf:
+        for page in pdf.pages:
+            # Extract tables first
+            tables = page.extract_tables()
+            for table in tables:
+                table_text = _format_table_as_text(table)
+            # Extract text with layout awareness
+            page_text = page.extract_text(layout=True)
 ```
 
-**Excel Extraction:**
+**DOCX Extraction (with tables and headers):**
 ```python
-def _extract_excel_text(content: bytes, extension: str) -> str:
-    engine = "openpyxl" if extension == ".xlsx" else "xlrd"
-    sheets = pd.read_excel(BytesIO(content), sheet_name=None, engine=engine)
-    
-    lines = []
-    for sheet_name, df in sheets.items():
-        lines.append(f"Sheet: {sheet_name}")
-        for row in df.fillna("").astype(str).values.tolist():
-            row_text = " | ".join(cell.strip() for cell in row if cell.strip())
-            if row_text:
-                lines.append(row_text)
-    return "\n".join(lines)
+def _extract_docx_text(content: bytes) -> str:
+    doc = Document(BytesIO(content))
+    # Extract headers
+    for section in doc.sections:
+        header_text = _extract_docx_header_footer(section.header)
+    # Extract paragraphs and tables in document order
+    for element in doc.element.body:
+        # Handle paragraphs and tables
+    # Extract footers
 ```
+
+### 0a. Document Cleaner (NEW)
+
+**File:** `app/services/document_cleaner.py`  
+**Type:** LLM-Powered (GPT-4o-mini)
+
+**Purpose:** Clean and structure extracted document text using LLM.
+
+**Features:**
+- Fix OCR/layout errors (garbled text, split words)
+- Normalize formatting (headings, bullets, numbered lists)
+- Preserve all original content
+- Auto-triggered based on extraction quality heuristics
+
+**Quality Check Heuristics:**
+- Short extraction from large file (< 500 chars from > 100KB)
+- High special character ratio (> 30%)
 
 ---
 
@@ -573,35 +595,97 @@ pm_count = 1
 | Endpoint | Method | Content-Type | Description |
 |----------|--------|--------------|-------------|
 | `/health` | GET | - | Health check (pipeline + database status) |
-| `/estimate` | POST | `application/json` | Estimation from JSON payload |
+| `/auth/login` | POST | `application/json` | Authenticate user, return JWT token |
+| `/upload` | POST | `multipart/form-data` | Upload and parse document, return document_id |
+| `/estimate` | POST | `application/json` | Estimation from JSON (with optional document_id) |
 | `/estimate` | POST | `multipart/form-data` | Estimation from uploaded PRD file |
 | `/modify` | POST | `application/json` | Modify features and re-estimate |
 
-### `/estimate` Endpoint (Dual Mode)
+### `/auth/login` Endpoint (NEW)
 
-**JSON Mode (`application/json`):**
+**Request:**
 ```json
 {
-    "project_description": "Build an e-commerce platform...",
+    "email": "admin@geekyants.com",
+    "password": "Test@123"
+}
+```
+
+**Response:**
+```json
+{
+    "access_token": "eyJhbGciOiJIUzI1NiIs...",
+    "token_type": "bearer",
+    "user": {
+        "id": "uuid",
+        "email": "admin@geekyants.com",
+        "created_at": "2026-02-27T..."
+    }
+}
+```
+
+### `/upload` Endpoint (NEW)
+
+**Request:** `multipart/form-data` (requires JWT token)
+```
+file: <PRD.pdf | PRD.docx | PRD.xlsx>
+additional_details: "Optional manual description"
+build_options: JSON array string, e.g. "[\"mobile\",\"web\"]"
+```
+
+**Response:**
+```json
+{
+    "document_id": "uuid",
+    "filename": "requirements.pdf",
+    "file_type": "pdf",
+    "extracted_preview": "First 500 chars of extracted text...",
+    "status": "uploaded"
+}
+```
+
+**Features:**
+- Extracts text using improved parser (pdfplumber for PDF, tables for DOCX)
+- Auto-triggers LLM cleanup if extraction quality is poor
+- Stores in `documents` table for later use with `/estimate`
+
+### `/estimate` Endpoint (UPDATED)
+
+Now supports **four input modes**:
+
+**Mode 1: Using document_id (JSON):**
+```json
+{
+    "document_id": "uuid-from-upload-endpoint",
+    "additional_context": "Focus on mobile users"
+}
+```
+
+**Mode 2: Manual input only (JSON):**
+```json
+{
+    "additional_details": "Build an e-commerce platform...",
+    "build_options": ["mobile", "web", "admin"],
     "additional_context": "Focus on mobile users",
     "preferred_tech_stack": ["React", "Node.js"],
-    "budget_range": "50k-100k",
     "timeline_constraint": "3 months"
 }
 ```
 
-**File Upload Mode (`multipart/form-data`):**
+**Mode 3: File upload (multipart/form-data):**
 ```
-project_description: "Optional manual description"
+additional_details: "Optional manual description"
+build_options: JSON array string, e.g. "[\"mobile\",\"web\"]"
 file: <PRD.pdf | PRD.docx | PRD.xlsx>
 additional_context: "Optional context"
 preferred_tech_stack: "React, Node.js"
 ```
 
 **Input Modes:**
-- If both `project_description` and `file` provided → `hybrid` mode
+- If `document_id` provided → `document_id` mode (fetches from DB)
+- If both `additional_details` (min 10 chars) and `file` provided → `hybrid` mode
 - If only `file` provided → `file_only` mode
-- If only `project_description` provided → `manual_only` mode
+- If only `additional_details` provided → `manual_only` mode
 
 ### `/health` Endpoint
 
@@ -634,7 +718,7 @@ preferred_tech_stack: "React, Node.js"
 
 ## Data Flow Summary
 
-1. **User submits** project description (manual text OR uploaded PRD document)
+1. **User submits** additional details (manual text) and/or build options (mobile, web, design, backend, admin) and/or uploaded PRD document
 2. **Document Parser** (Static) → extracts text from PDF/DOCX/Excel if file uploaded
 3. **Input Fusion** (Static) → combines manual + extracted text into unified description
 4. **Domain Detection** (LLM) → identifies domain (e.g., "ecommerce")
@@ -645,7 +729,51 @@ preferred_tech_stack: "React, Node.js"
 9. **Tech Stack** (Static/LLM) → recommends stack based on domain
 10. **Proposal** (LLM) → generates executive summary, deliverables, risks
 11. **Planning** (Static) → splits hours by phase, recommends team size
-12. **Response** → complete estimation package returned to user
+12. **Response** → complete estimation package returned to user (stored in DB if using document_id flow)
+
+---
+
+## Database Schema
+
+### Users Table
+
+Stores admin users for authentication (seeded, no signup).
+
+```sql
+CREATE TABLE users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+### Documents Table
+
+Stores uploaded documents and extracted text for later use.
+
+```sql
+CREATE TABLE documents (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    filename VARCHAR(255),
+    file_type VARCHAR(10),  -- 'pdf', 'docx', 'xlsx', 'xls'
+    extracted_text TEXT NOT NULL,
+    manual_input TEXT,
+    build_options TEXT[],  -- array: 'mobile', 'web', 'design', 'backend', 'admin'
+    fused_description TEXT,
+    status VARCHAR(20) DEFAULT 'uploaded',  -- uploaded, processing, completed, failed
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+**Key Points:**
+- `extracted_text`: LLM-cleaned (or raw) text from the parser
+- `build_options`: User's selections as Postgres text array
+- `fused_description`: Combined manual + extracted text sent to pipeline
+- `status`: Tracks document processing progress
 
 ---
 
@@ -712,20 +840,24 @@ python-dotenv==1.0.1
 pandas==2.2.3
 openpyxl==3.1.5
 asyncpg==0.30.0
-pypdf==5.1.0
+pdfplumber==0.11.4
 python-docx==1.1.0
 xlrd==2.0.1
 python-calamine>=0.2.0
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.3.0
 ```
 
 **Key Libraries:**
 - **FastAPI:** Web framework with multipart/form-data support
 - **httpx:** Async HTTP client for OpenRouter API calls
-- **pypdf:** PDF text extraction from PRD documents
+- **pdfplumber:** PDF text extraction with table support (replaces pypdf)
 - **python-docx:** DOCX text extraction from PRD documents
 - **pandas + openpyxl + calamine + xlrd:** Excel file parsing (calibration + PRDs)
 - **asyncpg:** Async PostgreSQL driver
 - **pydantic:** Data validation and serialization
+- **passlib[bcrypt]:** Password hashing for authentication
+- **python-jose:** JWT token creation and validation
 
 ---
 
@@ -733,7 +865,7 @@ python-calamine>=0.2.0
 
 ```
 app/
-├── main.py                          # FastAPI entry point, endpoints (JSON + multipart)
+├── main.py                          # FastAPI entry point, endpoints (auth, upload, estimate, modify)
 ├── agents/
 │   ├── base_agent.py                # Base class with LLM call logic
 │   ├── domain_detection_agent.py    # LLM: Domain classification
@@ -743,9 +875,11 @@ app/
 │   ├── proposal_agent.py            # LLM: Proposal generation
 │   └── modification_agent.py        # LLM: Scope modification
 ├── services/
-│   ├── document_parser.py           # STATIC: PDF/DOCX/Excel text extraction (NEW)
-│   ├── input_fusion_service.py      # STATIC: Combine manual + extracted text (NEW)
-│   ├── database.py                  # STATIC: PostgreSQL connection pool (NEW)
+│   ├── document_parser.py           # STATIC+LLM: PDF/DOCX/Excel extraction (pdfplumber)
+│   ├── document_cleaner.py          # LLM: Post-processing cleanup (NEW)
+│   ├── input_fusion_service.py      # STATIC: Combine manual + extracted text
+│   ├── database.py                  # STATIC: PostgreSQL connection pool
+│   ├── auth_service.py              # STATIC: JWT + password utilities (NEW)
 │   ├── template_expander.py         # STATIC: Domain template lookup
 │   ├── calibration_engine.py        # STATIC: Historical data matching
 │   ├── csv_calibration_loader.py    # STATIC: Excel file parsing for calibration
@@ -755,7 +889,9 @@ app/
 │   └── domain_templates.py          # Static domain module templates
 ├── models/
 │   ├── project_models.py            # Pydantic models for estimation
-│   └── modification_models.py       # Pydantic models for modification
+│   ├── modification_models.py       # Pydantic models for modification
+│   ├── user_models.py               # Pydantic models for auth (NEW)
+│   └── document_models.py           # Pydantic models for documents (NEW)
 ├── orchestrator/
 │   └── project_pipeline.py          # Main pipeline orchestrator
 └── data/
@@ -769,6 +905,7 @@ app/
 ```bash
 OPENROUTER_API_KEY=sk-...  # Required for LLM calls
 DATABASE_URL=postgresql://user:pass@host:5432/dbname  # Required for PostgreSQL
+JWT_SECRET_KEY=your-secret-key  # Required for JWT token signing (change in production!)
 ```
 
 ---

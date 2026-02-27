@@ -1,20 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { 
-  estimateProject, 
-  modifyScope, 
-  APIError, 
-  type EstimationResponse
-} from "@/lib/api";
+import { estimateProject, modifyScope, APIError, type EstimationResponse, type BuildOption } from "@/lib/api";
+import { BUILD_OPTION_VALUES, BUILD_OPTION_LABELS } from "@/lib/constants";
 import { EstimationTable } from "@/components/EstimationTable";
 import { EstimationSummary } from "@/components/EstimationSummary";
 import { ScopeModifier } from "@/components/ScopeModifier";
 import { PlanningBreakdown } from "@/components/PlanningBreakdown";
 
 export default function Home() {
-  const [projectDescription, setProjectDescription] = useState("");
-  const [budgetRange, setBudgetRange] = useState("");
+  const [additionalDetails, setAdditionalDetails] = useState("");
+  const [buildOptions, setBuildOptions] = useState<BuildOption[]>([]);
   const [timelineConstraint, setTimelineConstraint] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [results, setResults] = useState<EstimationResponse | null>(null);
@@ -53,8 +49,12 @@ export default function Home() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!projectDescription.trim() && !selectedFile) {
-      showToast("error", "Please provide manual details, upload a document, or both.");
+    if (!additionalDetails.trim() && !selectedFile) {
+      showToast("error", "Please provide additional details (at least 10 characters), upload a document, or both.");
+      return;
+    }
+    if (additionalDetails.trim().length < 10 && !selectedFile) {
+      showToast("error", "Additional details must be at least 10 characters when no document is uploaded.");
       return;
     }
 
@@ -62,8 +62,8 @@ export default function Home() {
     setResults(null);
 
     const payload = {
-      project_description: projectDescription.trim() || undefined,
-      budget_range: budgetRange || null,
+      additional_details: additionalDetails.trim() || undefined,
+      build_options: buildOptions.length ? buildOptions : undefined,
       timeline_constraint: timelineConstraint || null,
       file: selectedFile,
     };
@@ -162,15 +162,15 @@ export default function Home() {
                 <div className="space-y-4">
                   <div>
                     <label
-                      htmlFor="description"
+                      htmlFor="additional-details"
                       className="block text-sm font-medium text-slate-700 mb-2"
                     >
-                      Project Description
+                      Additional Details
                     </label>
                     <textarea
-                      id="description"
-                      value={projectDescription}
-                      onChange={(e) => setProjectDescription(e.target.value)}
+                      id="additional-details"
+                      value={additionalDetails}
+                      onChange={(e) => setAdditionalDetails(e.target.value)}
                       placeholder="Describe your project in detail..."
                       className="text-black w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
                       rows={8}
@@ -178,20 +178,40 @@ export default function Home() {
                   </div>
 
                   <div>
-                    <label
-                      htmlFor="budget"
-                      className="block text-sm font-medium text-slate-700 mb-2"
-                    >
-                      Budget Range
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      What do you want to build?
                     </label>
-                    <input
-                      id="budget"
-                      type="text"
-                      value={budgetRange}
-                      onChange={(e) => setBudgetRange(e.target.value)}
-                      placeholder="e.g., 2 lac INR, $10k-$20k"
-                      className="text-black w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
+                    <div
+                      role="group"
+                      aria-label="Build options (multi-select)"
+                      className="flex flex-wrap gap-3 p-3 border border-slate-200 rounded-lg bg-slate-50/50"
+                    >
+                      {BUILD_OPTION_VALUES.map((option) => (
+                        <label
+                          key={option}
+                          className="inline-flex items-center gap-2 cursor-pointer select-none"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={buildOptions.includes(option)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setBuildOptions((prev) => [...prev, option]);
+                              } else {
+                                setBuildOptions((prev) => prev.filter((x) => x !== option));
+                              }
+                            }}
+                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="text-sm text-slate-700">
+                            {BUILD_OPTION_LABELS[option]}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                    <p className="mt-1.5 text-xs text-slate-500">
+                      Select one or more: mobile, web, design, backend, admin
+                    </p>
                   </div>
 
                   <div>

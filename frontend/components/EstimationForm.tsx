@@ -1,34 +1,42 @@
 "use client";
 
 import { useState } from "react";
+import type { BuildOption } from "@/lib/api";
+import { BUILD_OPTION_VALUES, BUILD_OPTION_LABELS } from "@/lib/constants";
 
 interface EstimationFormProps {
   onSubmit: (data: {
-    projectDescription: string;
-    budgetRange?: string;
+    additionalDetails: string;
+    buildOptions?: BuildOption[];
     timelineConstraint?: string;
   }) => void;
   loading: boolean;
 }
 
 export function EstimationForm({ onSubmit, loading }: EstimationFormProps) {
-  const [projectDescription, setProjectDescription] = useState("");
-  const [budgetRange, setBudgetRange] = useState("");
+  const [additionalDetails, setAdditionalDetails] = useState("");
+  const [buildOptions, setBuildOptions] = useState<BuildOption[]>([]);
   const [timelineConstraint, setTimelineConstraint] = useState("");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (projectDescription.trim().length < 10) {
-      alert("Please provide a more detailed project description (at least 10 characters)");
+
+    if (additionalDetails.trim().length < 10) {
+      alert("Please provide additional details (at least 10 characters)");
       return;
     }
 
     onSubmit({
-      projectDescription,
-      budgetRange: budgetRange || undefined,
+      additionalDetails,
+      buildOptions: buildOptions.length ? buildOptions : undefined,
       timelineConstraint: timelineConstraint || undefined,
     });
+  };
+
+  const toggleBuildOption = (option: BuildOption) => {
+    setBuildOptions((prev) =>
+      prev.includes(option) ? prev.filter((x) => x !== option) : [...prev, option]
+    );
   };
 
   return (
@@ -40,15 +48,15 @@ export function EstimationForm({ onSubmit, loading }: EstimationFormProps) {
       <form onSubmit={handleSubmit} className="space-y-6">
         <div>
           <label
-            htmlFor="description"
+            htmlFor="additional-details"
             className="block text-sm font-medium text-slate-700 mb-2"
           >
-            Project Description *
+            Additional Details *
           </label>
           <textarea
-            id="description"
-            value={projectDescription}
-            onChange={(e) => setProjectDescription(e.target.value)}
+            id="additional-details"
+            value={additionalDetails}
+            onChange={(e) => setAdditionalDetails(e.target.value)}
             placeholder="Describe your project in detail..."
             className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
             rows={8}
@@ -58,20 +66,29 @@ export function EstimationForm({ onSubmit, loading }: EstimationFormProps) {
         </div>
 
         <div>
-          <label
-            htmlFor="budget"
-            className="block text-sm font-medium text-slate-700 mb-2"
-          >
-            Budget Range (Optional)
+          <label className="block text-sm font-medium text-slate-700 mb-2">
+            What do you want to build?
           </label>
-          <input
-            id="budget"
-            type="text"
-            value={budgetRange}
-            onChange={(e) => setBudgetRange(e.target.value)}
-            placeholder="e.g., 2 lac INR, $10k-$20k"
-            className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
+          <div
+            role="group"
+            aria-label="Build options (multi-select)"
+            className="flex flex-wrap gap-3 p-3 border border-slate-200 rounded-lg bg-slate-50/50"
+          >
+            {BUILD_OPTION_VALUES.map((option) => (
+              <label key={option} className="inline-flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={buildOptions.includes(option)}
+                  onChange={() => toggleBuildOption(option)}
+                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm text-slate-700">{BUILD_OPTION_LABELS[option]}</span>
+              </label>
+            ))}
+          </div>
+          <p className="mt-1.5 text-xs text-slate-500">
+            Select one or more: mobile, web, design, backend, admin
+          </p>
         </div>
 
         <div>
