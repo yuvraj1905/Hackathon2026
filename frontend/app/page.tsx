@@ -3,67 +3,84 @@
 import { useState } from "react";
 import { 
   estimateProject, 
-  estimateProjectStream, 
   modifyScope, 
   APIError, 
-  type EstimationResponse,
-  type StreamEvent 
+  type EstimationResponse
 } from "@/lib/api";
 import { EstimationTable } from "@/components/EstimationTable";
 import { EstimationSummary } from "@/components/EstimationSummary";
 import { ScopeModifier } from "@/components/ScopeModifier";
 import { PlanningBreakdown } from "@/components/PlanningBreakdown";
-import { ProgressIndicator } from "@/components/ProgressIndicator";
 
 export default function Home() {
   const [projectDescription, setProjectDescription] = useState("");
   const [budgetRange, setBudgetRange] = useState("");
   const [timelineConstraint, setTimelineConstraint] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [results, setResults] = useState<EstimationResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [modifying, setModifying] = useState(false);
-  const [streamingEnabled, setStreamingEnabled] = useState(true);
-  const [currentStage, setCurrentStage] = useState<StreamEvent | null>(null);
+  const [toast, setToast] = useState<{ type: "error" | "success"; message: string } | null>(null);
+
+  const showToast = (type: "error" | "success", message: string) => {
+    setToast({ type, message });
+    setTimeout(() => setToast(null), 3500);
+  };
+
+  const validateFile = (file: File): string | null => {
+    const maxBytes = 10 * 1024 * 1024;
+    if (file.size > maxBytes) {
+      return "File size must be under 10MB.";
+    }
+    const ext = file.name.split(".").pop()?.toLowerCase() || "";
+    const allowed = new Set(["pdf", "docx", "xlsx"]);
+    if (!allowed.has(ext)) {
+      return "Unsupported file type. Please upload PDF, DOCX, or XLSX.";
+    }
+    return null;
+  };
+
+  const handleFileSelect = (file: File | null) => {
+    if (!file) return;
+    const error = validateFile(file);
+    if (error) {
+      showToast("error", error);
+      return;
+    }
+    setSelectedFile(file);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (projectDescription.trim().length < 10) {
-      alert("Please provide a more detailed project description (at least 10 characters)");
+    if (!projectDescription.trim() && !selectedFile) {
+      showToast("error", "Please provide manual details, upload a document, or both.");
       return;
     }
 
     setLoading(true);
     setResults(null);
-    setCurrentStage(null);
 
     const payload = {
-      project_description: projectDescription,
+      project_description: projectDescription.trim() || undefined,
       budget_range: budgetRange || null,
       timeline_constraint: timelineConstraint || null,
+      file: selectedFile,
     };
 
     try {
-      if (streamingEnabled) {
-        const data = await estimateProjectStream(payload, (event) => {
-          setCurrentStage(event);
-        });
-        setResults(data);
-      } else {
-        const data = await estimateProject(payload);
-        setResults(data);
-      }
+      const data = await estimateProject(payload);
+      setResults(data);
     } catch (error) {
       console.error("Error:", error);
 
       if (error instanceof APIError) {
-        alert(error.message);
+        showToast("error", error.message);
       } else {
-        alert("Failed to generate estimation. Please try again.");
+        showToast("error", "Network failure. Please try again.");
       }
     } finally {
       setLoading(false);
-      setCurrentStage(null);
     }
   };
 
@@ -121,81 +138,133 @@ export default function Home() {
           </p>
         </header>
 
-        {loading && currentStage && (
-          <div className="mb-8">
-            <ProgressIndicator stage={currentStage.stage} data={currentStage} />
+        {toast && (
+          <div
+            className={`mb-6 rounded-lg px-4 py-3 text-sm font-medium transition-all ${
+              toast.type === "error"
+                ? "bg-red-50 text-red-700 border border-red-200"
+                : "bg-green-50 text-green-700 border border-green-200"
+            }`}
+          >
+            {toast.message}
           </div>
         )}
 
         <div className="grid gap-8">
-          <div className="bg-white rounded-lg shadow-lg p-6">
-            <h2 className="text-2xl font-semibold text-slate-900 mb-6">
-              Project Details
-            </h2>
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <p className="text-sm text-slate-600">
+              Provide project details manually, upload client documents, or both.
+            </p>
 
-            <form onSubmit={handleSubmit} className="space-y-6">
-              <div>
-                <label
-                  htmlFor="description"
-                  className="block text-sm font-medium text-slate-700 mb-2"
-                >
-                  Project Description *
-                </label>
-                <textarea
-                  id="description"
-                  value={projectDescription}
-                  onChange={(e) => setProjectDescription(e.target.value)}
-                  placeholder="Describe your project in detail..."
-                  className="text-black w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-                  rows={8}
-                  required
-                  minLength={10}
-                />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <h2 className="text-lg font-semibold text-slate-900 mb-4">Manual Details</h2>
+                <div className="space-y-4">
+                  <div>
+                    <label
+                      htmlFor="description"
+                      className="block text-sm font-medium text-slate-700 mb-2"
+                    >
+                      Project Description
+                    </label>
+                    <textarea
+                      id="description"
+                      value={projectDescription}
+                      onChange={(e) => setProjectDescription(e.target.value)}
+                      placeholder="Describe your project in detail..."
+                      className="text-black w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                      rows={8}
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="budget"
+                      className="block text-sm font-medium text-slate-700 mb-2"
+                    >
+                      Budget Range
+                    </label>
+                    <input
+                      id="budget"
+                      type="text"
+                      value={budgetRange}
+                      onChange={(e) => setBudgetRange(e.target.value)}
+                      placeholder="e.g., 2 lac INR, $10k-$20k"
+                      className="text-black w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="timeline"
+                      className="block text-sm font-medium text-slate-700 mb-2"
+                    >
+                      Timeline Constraint
+                    </label>
+                    <input
+                      id="timeline"
+                      type="text"
+                      value={timelineConstraint}
+                      onChange={(e) => setTimelineConstraint(e.target.value)}
+                      placeholder="e.g., 2 months, ASAP"
+                      className="text-black w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
               </div>
 
-              <div>
-                <label
-                  htmlFor="budget"
-                  className="block text-sm font-medium text-slate-700 mb-2"
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <h2 className="text-lg font-semibold text-slate-900 mb-4">Document Upload</h2>
+                <div
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const dropped = e.dataTransfer.files?.[0] || null;
+                    handleFileSelect(dropped);
+                  }}
+                  className="group rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 p-6 text-center transition-all hover:border-blue-400 hover:bg-blue-50"
                 >
-                  Budget Range (Optional)
-                </label>
-                <input
-                  id="budget"
-                  type="text"
-                  value={budgetRange}
-                  onChange={(e) => setBudgetRange(e.target.value)}
-                  placeholder="e.g., 2 lac INR, $10k-$20k"
-                  className="text-black w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
+                  <input
+                    id="doc-upload"
+                    type="file"
+                    accept=".pdf,.docx,.xlsx"
+                    className="hidden"
+                    onChange={(e) => handleFileSelect(e.target.files?.[0] || null)}
+                  />
+                  <label htmlFor="doc-upload" className="cursor-pointer">
+                    <span className="inline-block rounded-md bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm">
+                      Choose file or drag & drop
+                    </span>
+                  </label>
+                  <p className="mt-3 text-xs text-slate-500">Supports PDF, DOCX, XLSX</p>
 
-              <div>
-                <label
-                  htmlFor="timeline"
-                  className="block text-sm font-medium text-slate-700 mb-2"
-                >
-                  Timeline Constraint (Optional)
-                </label>
-                <input
-                  id="timeline"
-                  type="text"
-                  value={timelineConstraint}
-                  onChange={(e) => setTimelineConstraint(e.target.value)}
-                  placeholder="e.g., 2 months, ASAP"
-                  className="text-black w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
+                  {selectedFile && (
+                    <div className="mt-4 rounded-md border border-slate-200 bg-white px-3 py-2 text-left">
+                      <p className="text-sm font-medium text-slate-800 truncate">{selectedFile.name}</p>
+                      <p className="text-xs text-slate-500">
+                        {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB
+                      </p>
+                      <button
+                        type="button"
+                        className="mt-2 text-xs text-red-600 hover:text-red-700"
+                        onClick={() => setSelectedFile(null)}
+                      >
+                        Remove file
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
+            </div>
 
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 text-white font-semibold py-3 px-6 rounded-lg transition-colors"
-              >
-                {loading ? "Generating Estimation..." : "Generate Estimation"}
-              </button>
-            </form>
-          </div>
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 text-white font-semibold py-3 px-6 rounded-lg transition-colors"
+            >
+              {loading ? "Generating Estimation..." : "Generate Estimation"}
+            </button>
+          </form>
 
           {results && (
             <div className="space-y-6">
