@@ -1,9 +1,7 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
 from contextlib import asynccontextmanager
 import logging
-import json
 from dotenv import load_dotenv
 
 from app.models.project_models import ProjectRequest, FinalPipelineResponse
@@ -13,6 +11,8 @@ from app.agents.modification_agent import ModificationAgent
 from app.agents.estimation_agent import EstimationAgent
 from app.services.calibration_engine import CalibrationEngine
 from app.services.database import db
+from app.services.document_parser import extract_text_from_upload
+from app.services.input_fusion_service import build_final_description
 
 load_dotenv()
 
@@ -71,7 +71,7 @@ async def health_check():
 
 
 @app.post("/estimate", response_model=FinalPipelineResponse)
-async def estimate_project(request: ProjectRequest) -> FinalPipelineResponse:
+async def estimate_project(request: Request) -> FinalPipelineResponse:
     """
     Execute full estimation pipeline for a project.
     
@@ -82,22 +82,101 @@ async def estimate_project(request: ProjectRequest) -> FinalPipelineResponse:
         Complete estimation with domain, features, hours, tech stack, and proposal
     """
     try:
-        logger.info(f"Processing estimation request: {request.project_description[:100]}...")
-        
+        content_type = (request.headers.get("content-type") or "").lower()
+
+        project_description = None
+        extracted_text = None
+        additional_context = None
+        preferred_tech_stack = None
+
+        if "application/json" in content_type:
+            body = await request.json()
+            json_payload = ProjectRequest(**body)
+            project_description = json_payload.project_description
+            additional_context = json_payload.additional_context
+            preferred_tech_stack = json_payload.preferred_tech_stack
+
+        elif "multipart/form-data" in content_type:
+            form = await request.form()
+
+            project_description_raw = form.get("project_description")
+            project_description = (
+                str(project_description_raw).strip()
+                if project_description_raw is not None
+                else None
+            )
+
+            file_item = form.get("file")
+            if (
+                file_item is not None
+                and hasattr(file_item, "filename")
+                and hasattr(file_item, "read")
+                and file_item.filename
+            ):
+                extracted_text = await extract_text_from_upload(file_item)
+
+            additional_context_raw = form.get("additional_context")
+            additional_context = (
+                str(additional_context_raw).strip()
+                if additional_context_raw is not None and str(additional_context_raw).strip()
+                else None
+            )
+
+            preferred_stack_raw = form.get("preferred_tech_stack")
+            if preferred_stack_raw is not None and str(preferred_stack_raw).strip():
+                preferred_tech_stack = [
+                    part.strip()
+                    for part in str(preferred_stack_raw).split(",")
+                    if part.strip()
+                ]
+
+            # These are accepted for compatibility in multipart payloads.
+            _ = form.get("budget_range")
+            _ = form.get("timeline_constraint")
+
+        else:
+            raise HTTPException(
+                status_code=415,
+                detail="Unsupported Content-Type. Use application/json or multipart/form-data.",
+            )
+
+        final_description = build_final_description(project_description, extracted_text)
+
+        has_manual = bool((project_description or "").strip())
+        has_file = bool((extracted_text or "").strip())
+        if has_manual and has_file:
+            input_mode = "hybrid"
+        elif has_file:
+            input_mode = "file_only"
+        else:
+            input_mode = "manual_only"
+
+        logger.info(
+            "Processing estimation request mode=%s description_len=%d",
+            input_mode,
+            len(final_description),
+        )
+
+        # Single pipeline execution path (no duplication).
         result = await pipeline.run({
-            "description": request.project_description,
-            "additional_context": request.additional_context,
-            "preferred_tech_stack": request.preferred_tech_stack
+            "description": final_description,
+            "additional_context": additional_context,
+            "preferred_tech_stack": preferred_tech_stack
         })
-        
-        logger.info(f"Estimation completed: {result['request_id']}")
-        
+
+        logger.info(
+            "Estimation completed: %s mode=%s",
+            result["request_id"],
+            input_mode
+        )
+
         return FinalPipelineResponse(**result)
-        
+
+    except HTTPException:
+        raise
     except ValueError as e:
         logger.error(f"Validation error: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
-    
     except Exception as e:
         logger.error(f"Pipeline error: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal estimation error")
@@ -210,35 +289,3 @@ def _generate_changes_summary(
     return ", ".join(changes) if changes else "No changes detected"
 
 
-@app.post("/estimate/stream")
-async def estimate_project_stream(request: ProjectRequest):
-    """
-    Execute estimation pipeline with streaming progress updates.
-    
-    Args:
-        request: Project request with description and optional context
-        
-    Returns:
-        Server-Sent Events stream with stage-by-stage progress
-    """
-    async def event_generator():
-        try:
-            async for event in pipeline.run_streaming({
-                "description": request.project_description,
-                "additional_context": request.additional_context,
-                "preferred_tech_stack": request.preferred_tech_stack
-            }):
-                yield f"data: {json.dumps(event)}\n\n"
-                
-        except Exception as e:
-            logger.error(f"Streaming error: {str(e)}")
-            yield f"data: {json.dumps({'stage': 'error', 'message': str(e)})}\n\n"
-    
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-        }
-    )
