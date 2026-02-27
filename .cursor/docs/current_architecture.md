@@ -596,9 +596,8 @@ pm_count = 1
 |----------|--------|--------------|-------------|
 | `/health` | GET | - | Health check (pipeline + database status) |
 | `/auth/login` | POST | `application/json` | Authenticate user, return JWT token |
-| `/upload` | POST | `multipart/form-data` | Upload and parse document, return document_id |
-| `/estimate` | POST | `application/json` | Estimation from JSON (with optional document_id) |
-| `/estimate` | POST | `multipart/form-data` | Estimation from uploaded PRD file |
+| `/estimate` | POST | `application/json` | Estimation from manual input (JWT required) |
+| `/estimate` | POST | `multipart/form-data` | Estimation with optional PRD file (JWT required) |
 | `/modify` | POST | `application/json` | Modify features and re-estimate |
 
 ### `/auth/login` Endpoint (NEW)
@@ -624,44 +623,13 @@ pm_count = 1
 }
 ```
 
-### `/upload` Endpoint (NEW)
+### `/estimate` Endpoint
 
-**Request:** `multipart/form-data` (requires JWT token)
-```
-file: <PRD.pdf | PRD.docx | PRD.xlsx>
-additional_details: "Optional manual description"
-build_options: JSON array string, e.g. "[\"mobile\",\"web\"]"
-```
+**Requires JWT authentication** (Authorization: Bearer &lt;token&gt;).
 
-**Response:**
-```json
-{
-    "document_id": "uuid",
-    "filename": "requirements.pdf",
-    "file_type": "pdf",
-    "extracted_preview": "First 500 chars of extracted text...",
-    "status": "uploaded"
-}
-```
+Supports **two content types** and **three input modes** (manual-only, file-only, hybrid):
 
-**Features:**
-- Extracts text using improved parser (pdfplumber for PDF, tables for DOCX)
-- Auto-triggers LLM cleanup if extraction quality is poor
-- Stores in `documents` table for later use with `/estimate`
-
-### `/estimate` Endpoint (UPDATED)
-
-Now supports **four input modes**:
-
-**Mode 1: Using document_id (JSON):**
-```json
-{
-    "document_id": "uuid-from-upload-endpoint",
-    "additional_context": "Focus on mobile users"
-}
-```
-
-**Mode 2: Manual input only (JSON):**
+**JSON (application/json):**
 ```json
 {
     "additional_details": "Build an e-commerce platform...",
@@ -671,21 +639,27 @@ Now supports **four input modes**:
     "timeline_constraint": "3 months"
 }
 ```
+- At least one of `additional_details` (min 10 chars) or a file is required; for JSON-only, `additional_details` is required.
 
-**Mode 3: File upload (multipart/form-data):**
+**Multipart (multipart/form-data):**
 ```
+file: <PRD.pdf | PRD.docx | PRD.xlsx>   (optional)
 additional_details: "Optional manual description"
 build_options: JSON array string, e.g. "[\"mobile\",\"web\"]"
-file: <PRD.pdf | PRD.docx | PRD.xlsx>
+timeline_constraint: "3 months"
 additional_context: "Optional context"
 preferred_tech_stack: "React, Node.js"
 ```
 
-**Input Modes:**
-- If `document_id` provided → `document_id` mode (fetches from DB)
-- If both `additional_details` (min 10 chars) and `file` provided → `hybrid` mode
-- If only `file` provided → `file_only` mode
-- If only `additional_details` provided → `manual_only` mode
+**Input modes:**
+- Both `additional_details` (min 10 chars) and `file` → `hybrid`
+- Only `file` → `file_only`
+- Only `additional_details` → `manual_only`
+
+**Behaviour:**
+- Parses file (PDF/DOCX/XLSX/XLS) with document parser; applies LLM cleanup when extraction quality is poor.
+- Fuses manual + extracted text via Input Fusion, runs full pipeline, returns `FinalPipelineResponse` (unchanged).
+- After success, inserts a row into `projects` (user_id, additional_details, build_options, timeline_constraint) and, if a file was uploaded, a row into `documents` (user_id, project_id, filename, file_type, extracted_text).
 
 ### `/health` Endpoint
 
@@ -729,7 +703,7 @@ preferred_tech_stack: "React, Node.js"
 9. **Tech Stack** (Static/LLM) → recommends stack based on domain
 10. **Proposal** (LLM) → generates executive summary, deliverables, risks
 11. **Planning** (Static) → splits hours by phase, recommends team size
-12. **Response** → complete estimation package returned to user (stored in DB if using document_id flow)
+12. **Response** → complete estimation package returned to user; request data stored in `projects` table and, when a file was uploaded, in `documents` table
 
 ---
 
@@ -749,31 +723,46 @@ CREATE TABLE users (
 );
 ```
 
-### Documents Table
+### Projects Table
 
-Stores uploaded documents and extracted text for later use.
+Stores one row per estimation request (created after each successful `/estimate` call).
 
 ```sql
-CREATE TABLE documents (
+CREATE TABLE projects (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    filename VARCHAR(255),
-    file_type VARCHAR(10),  -- 'pdf', 'docx', 'xlsx', 'xls'
-    extracted_text TEXT NOT NULL,
-    manual_input TEXT,
-    build_options TEXT[],  -- array: 'mobile', 'web', 'design', 'backend', 'admin'
-    fused_description TEXT,
-    status VARCHAR(20) DEFAULT 'uploaded',  -- uploaded, processing, completed, failed
+    additional_details TEXT,
+    build_options TEXT[],  -- 'mobile', 'web', 'design', 'backend', 'admin'
+    timeline_constraint TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 ```
 
 **Key Points:**
-- `extracted_text`: LLM-cleaned (or raw) text from the parser
-- `build_options`: User's selections as Postgres text array
-- `fused_description`: Combined manual + extracted text sent to pipeline
-- `status`: Tracks document processing progress
+- One project row per estimate; holds user input (additional_details, build_options, timeline_constraint).
+- `build_options`: User's selections as Postgres text array.
+
+### Documents Table
+
+Stores uploaded PRD files and extracted text; each row is linked to a project (created when `/estimate` is called with a file).
+
+```sql
+CREATE TABLE documents (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    filename VARCHAR(255),
+    file_type VARCHAR(10),  -- 'pdf', 'docx', 'xlsx', 'xls'
+    extracted_text TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+**Key Points:**
+- `project_id`: Links to the project row created for that estimate.
+- `extracted_text`: LLM-cleaned (or raw) text from the document parser.
 
 ---
 
@@ -865,7 +854,7 @@ python-jose[cryptography]==3.3.0
 
 ```
 app/
-├── main.py                          # FastAPI entry point, endpoints (auth, upload, estimate, modify)
+├── main.py                          # FastAPI entry point, endpoints (auth, estimate, modify)
 ├── agents/
 │   ├── base_agent.py                # Base class with LLM call logic
 │   ├── domain_detection_agent.py    # LLM: Domain classification
@@ -891,7 +880,7 @@ app/
 │   ├── project_models.py            # Pydantic models for estimation
 │   ├── modification_models.py       # Pydantic models for modification
 │   ├── user_models.py               # Pydantic models for auth (NEW)
-│   └── document_models.py           # Pydantic models for documents (NEW)
+│   └── document_models.py           # Pydantic models for documents (project-linked)
 ├── orchestrator/
 │   └── project_pipeline.py          # Main pipeline orchestrator
 └── data/

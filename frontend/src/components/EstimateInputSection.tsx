@@ -21,12 +21,15 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { LOADING_STEPS, PLATFORM_OPTIONS } from "@/lib/utils";
 
+export type LoadingStep = "idle" | "uploading" | "estimating";
+
 interface EstimateInputSectionProps {
   projectDesc: string;
   platforms: string[];
   timeline: string;
   uploadedFile: File | null;
   loading: boolean;
+  loadingStep?: LoadingStep;
   error: string | null;
   onChangeProjectDesc: (value: string) => void;
   onTogglePlatform: (value: string) => void;
@@ -143,6 +146,7 @@ export function EstimateInputSection({
   timeline,
   uploadedFile,
   loading,
+  loadingStep = "idle",
   error,
   onChangeProjectDesc,
   onTogglePlatform,
@@ -151,6 +155,33 @@ export function EstimateInputSection({
   onFileDrop,
   onGenerate,
 }: EstimateInputSectionProps) {
+  const getButtonContent = () => {
+    if (!loading) {
+      return (
+        <>
+          <Send className="relative z-10 mr-2.5 h-5 w-5" />
+          <span className="relative z-10">Generate Estimation</span>
+          <ArrowRight className="relative z-10 ml-2 h-4 w-4 opacity-60" />
+        </>
+      );
+    }
+
+    if (loadingStep === "uploading") {
+      return (
+        <>
+          <Loader2 className="relative z-10 mr-2.5 h-5 w-5 animate-spin" />
+          <span className="relative z-10">Uploading Document...</span>
+        </>
+      );
+    }
+
+    return (
+      <>
+        <Loader2 className="relative z-10 mr-2.5 h-5 w-5 animate-spin" />
+        <span className="relative z-10">Generating Estimation...</span>
+      </>
+    );
+  };
   return (
     <motion.div
       key="input"
@@ -214,7 +245,7 @@ export function EstimateInputSection({
               <div className="mb-2.5 flex items-center justify-between">
                 <label className="flex items-center gap-2 text-sm font-semibold">
                   <FileText className="h-4 w-4 text-muted-foreground" />
-                  Project Description
+                  Additional Details
                 </label>
                 <span
                   className={`tabular-nums text-xs font-mono ${projectDesc.length > 0 && projectDesc.length < 10
@@ -336,9 +367,7 @@ export function EstimateInputSection({
                 loading || (projectDesc.trim().length > 0 && projectDesc.trim().length < 10)
               }
             >
-              <Send className="relative z-10 mr-2.5 h-5 w-5" />
-              <span className="relative z-10">Generate Estimation</span>
-              <ArrowRight className="relative z-10 ml-2 h-4 w-4 opacity-60" />
+              {getButtonContent()}
             </Button>
           </>
         )}

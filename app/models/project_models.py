@@ -86,10 +86,10 @@ class ProposalResponse(BaseModel):
 
 
 class ProjectRequest(BaseModel):
+    """Request model for /estimate endpoint (JSON body)."""
     model_config = ConfigDict(str_strip_whitespace=True)
     
-    document_id: Optional[str] = Field(None, description="ID of previously uploaded document (UUID)")
-    additional_details: Optional[str] = Field(None, description="Additional details from the client (manual input)")
+    additional_details: Optional[str] = Field(None, description="Project description from the client (min 10 chars)")
     build_options: List[BuildOption] = Field(
         default_factory=list,
         description="What the client wants to build: mobile, web, design, backend, admin",
