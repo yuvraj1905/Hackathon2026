@@ -12,6 +12,7 @@ from app.orchestrator.project_pipeline import ProjectPipeline
 from app.agents.modification_agent import ModificationAgent
 from app.agents.estimation_agent import EstimationAgent
 from app.services.calibration_engine import CalibrationEngine
+from app.services.database import db
 
 load_dotenv()
 
@@ -31,6 +32,8 @@ estimation_agent: EstimationAgent = None
 async def lifespan(app: FastAPI):
     global pipeline, modification_agent, calibration_engine, estimation_agent
     logger.info("Initializing estimation pipeline...")
+    await db.connect()
+    logger.info("Connected to PostgreSQL")
     pipeline = ProjectPipeline()
     calibration_engine = CalibrationEngine()
     estimation_agent = EstimationAgent(calibration_engine=calibration_engine)
@@ -38,6 +41,7 @@ async def lifespan(app: FastAPI):
     logger.info("Pipeline ready")
     yield
     logger.info("Shutting down...")
+    await db.disconnect()
 
 
 app = FastAPI(
@@ -58,7 +62,12 @@ app.add_middleware(
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "pipeline_initialized": pipeline is not None}
+    db_connected = await db.healthcheck()
+    return {
+        "status": "healthy" if db_connected else "degraded",
+        "pipeline_initialized": pipeline is not None,
+        "database_connected": db_connected,
+    }
 
 
 @app.post("/estimate", response_model=FinalPipelineResponse)
