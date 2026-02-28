@@ -849,16 +849,16 @@ When `project_id` is provided:
 - Parses file (PDF/DOCX/XLSX/XLS) with document parser; applies LLM cleanup when extraction quality is poor.
 - Fuses manual + extracted text via Input Fusion, runs full pipeline, returns `FinalPipelineResponse`.
 - Passes `build_options` and `timeline_constraint` through the pipeline for context-aware processing.
-- After success, inserts a row into `projects` (user_id, additional_details, build_options, timeline_constraint) and, if a file was uploaded, a row into `documents` (user_id, project_id, filename, file_type, extracted_text).
+- After success, inserts a row into `projects` (user_id, additional_details, build_options, timeline_constraint) and, if a file was uploaded, a row into `documents` (user_id, project_id, filename, file_type, extracted_text). Then updates that project row with `estimate_data` (full pipeline result JSON including `project_id`) so proposal PDF/Doc work after refresh. The response includes `project_id`; the frontend should use it for proposal PDF/Doc links.
 
 **Response structure (`FinalPipelineResponse`):**
 
-- `request_id` (str), `domain_detection` (detected_domain, confidence, secondary_domains, reasoning), `estimation` (total_hours, min_hours, max_hours, features, overall_complexity, confidence_score, assumptions), `tech_stack` (frontend, backend, database, infrastructure, third_party_services, justification as nested dicts or lists), `proposal` (executive_summary, scope_of_work, deliverables, timeline_weeks, team_composition, risks, mitigation_strategies), `planning` (phase_split, team_recommendation, complexity_breakdown), `metadata`.
+- `project_id` (str, optional — use for proposal PDF/Doc URLs), `domain_detection` (detected_domain, confidence, secondary_domains, reasoning), `estimation` (total_hours, min_hours, max_hours, features, overall_complexity, confidence_score, assumptions), `tech_stack` (frontend, backend, database, infrastructure, third_party_services, justification as nested dicts or lists), `proposal` (executive_summary, scope_of_work, deliverables, timeline_weeks, team_composition, risks, mitigation_strategies), `planning` (phase_split, team_recommendation, complexity_breakdown), `metadata`.
 - Each feature in `estimation.features` has: `name`, `complexity`, `total_hours`, `subfeatures` (list of `{ name, effort }`), `confidence_score`.
 
 **Download Proposal & Proposal Generation:**
 
-- `/proposal/pdf/{request_id}`, `/proposal/html/{request_id}`, and `/proposal/google-doc/{request_id}` use the cached estimation result for that `request_id` (same structure as above). Context for the proposal template is built via `_build_proposal_context()`: features are normalized (description from subfeature names, total_hours for hours), and tech_stack layers are flattened to lists for display in the HTML template.
+- `/proposal/pdf/{project_id}`, `/proposal/html/{project_id}`, and `/proposal/google-doc/{project_id}` resolve estimation data by project UUID: in-memory cache first, then DB (`projects.estimate_data` where `projects.id` = `project_id`). Use the `project_id` returned in the `/estimate` response for these URLs. PDF/Doc work after page refresh and across restarts. Context for the proposal template is built via `_build_proposal_context()`: features are normalized (description from subfeature names, total_hours for hours), and tech_stack layers are flattened to lists for display in the HTML template.
 
 ### `/health` Endpoint
 
@@ -940,6 +940,7 @@ CREATE TABLE projects (
     additional_details TEXT,
     build_options TEXT[],  -- 'mobile', 'web', 'design', 'backend', 'admin'
     timeline_constraint TEXT,
+    estimate_data JSONB,   -- full estimation response; used for PDF/Doc after refresh (look up by id)
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -949,6 +950,7 @@ CREATE TABLE projects (
 
 - One project row per estimate; holds user input (additional_details, build_options, timeline_constraint).
 - `build_options`: User's selections as Postgres text array.
+- `estimate_data`: After each successful `/estimate`, the full pipeline response (including `project_id`) is stored here so proposal PDF/Doc work after page refresh (and across restarts). Proposal endpoints look up by project `id`.
 
 ### Documents Table
 
