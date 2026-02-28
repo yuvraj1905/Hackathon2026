@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 from io import BytesIO
 import asyncio
 import json
+import re
 import uuid as uuid_module
 import logging
 from pathlib import Path
@@ -579,15 +580,74 @@ async def list_projects(
         raise HTTPException(status_code=500, detail="Failed to load projects")
 
 
+def _parse_add_subfeature_intent(instruction: str):
+    """
+    Parse 'add X as a subfeature in Y' / 'add X subfeature in Y' / 'X as a subfeature in admin management'.
+    Returns (subfeature_name, parent_feature_name) or (None, None).
+    """
+    if not instruction or "subfeature" not in instruction.strip().lower():
+        return None, None
+    instr = instruction.strip()
+    instr_lower = instr.lower()
+    # "add X as a subfeature in Y" or "add X subfeature in Y" or "X as a subfeature in Y"
+    for pattern in [
+        r"add\s+(.+?)\s+as\s+(?:a\s+)?subfeature\s+in\s+(.+)",
+        r"add\s+(.+?)\s+subfeature\s+in\s+(.+)",
+        r"(.+?)\s+as\s+(?:a\s+)?subfeature\s+in\s+(.+)",
+    ]:
+        m = re.search(pattern, instr_lower, re.I | re.DOTALL)
+        if m:
+            sub_name = instr[m.start(1):m.end(1)].strip()
+            parent_name = instr[m.start(2):m.end(2)].strip()
+            if sub_name and parent_name and len(sub_name) < 120:
+                return sub_name.strip().title(), parent_name.strip()
+    return None, None
+
+
+def _apply_deterministic_add_subfeature(features: list, instruction: str) -> list:
+    """When user says 'add X as a subfeature in Y', add X to Y's subfeatures array."""
+    sub_name, parent_name = _parse_add_subfeature_intent(instruction)
+    if not sub_name or not parent_name or not isinstance(features, list):
+        return features
+    parent_lower = parent_name.lower()
+    applied = False
+    for f in features:
+        if not isinstance(f, dict):
+            continue
+        fn = (f.get("name") or "").strip().lower()
+        # Match parent by name (allow partial: "admin management" matches "Admin management")
+        if fn == parent_lower or parent_lower in fn or fn in parent_lower:
+            subs = list(f.get("subfeatures") or [])
+            existing = {str(s.get("name", "")).strip().lower() for s in subs if isinstance(s, dict)}
+            if sub_name.lower() not in existing:
+                subs.append({"name": sub_name})
+                f["subfeatures"] = subs
+                logger.info("Deterministic add subfeature: %r under %r", sub_name, f.get("name"))
+                applied = True
+            break
+    # If we added the subfeature, drop any mistaken top-level feature the LLM may have added
+    # (e.g. "User Info As A Subfeature In Admin Management" with 0 subfeatures)
+    if applied:
+        def is_mistaken_subfeature_as_feature(feat: dict) -> bool:
+            name = (feat.get("name") or "").strip().lower()
+            subs = feat.get("subfeatures") or []
+            return ("subfeature" in name or " as a subfeature " in name) and (not subs or len(subs) == 0)
+        features[:] = [f for f in features if not (isinstance(f, dict) and is_mistaken_subfeature_as_feature(f))]
+    return features
+
+
 def _apply_deterministic_add_feature(features: list, instruction: str) -> list:
-    """When user says 'add X feature' or 'add logout', append that feature so modify API returns it and UI shows it."""
+    """When user says 'add X feature' or 'add logout', append that feature so modify API returns it and UI shows it.
+    Skips when instruction is clearly 'add X as subfeature in Y'."""
     if not instruction or not isinstance(features, list):
         return features
     instr = instruction.strip().lower()
+    if "subfeature" in instr:
+        return features
     if "add" not in instr:
         return features
     name = None
-    if " feature" in instr:
+    if " feature" in instr and " subfeature" not in instr:
         for prefix in ("add a ", "add "):
             if prefix in instr:
                 start = instr.find(prefix) + len(prefix)
@@ -648,6 +708,7 @@ async def modify_scope(request: ModificationRequest) -> ModificationResponse:
         })
         
         updated_features = modification_result.get("features", [])
+        updated_features = _apply_deterministic_add_subfeature(updated_features, request.instruction)
         updated_features = _apply_deterministic_add_feature(updated_features, request.instruction)
         
         estimation_result = await estimation_agent.execute({

@@ -159,9 +159,12 @@ Keep all existing features and their subfeatures unless explicitly asked to remo
         return fixes.get(name.lower(), name)
 
     def _parse_add_feature_intent(self, instruction: str) -> Optional[str]:
-        """Extract feature name from 'add X feature' / 'add a X feature' / 'add feature X'."""
+        """Extract feature name from 'add X feature' / 'add a X feature' / 'add feature X'.
+        Returns None when user asked to add a subfeature (e.g. 'add X as subfeature in Y')."""
         s = (instruction or "").strip()
         if not s or "add" not in s.lower() or "feature" not in s.lower():
+            return None
+        if "subfeature" in s.lower():
             return None
         # "add a logout feature" or "add lgout feature"
         m = re.search(r"\badd\s+(?:a\s+)?(.+?)\s+feature\b", s, re.I)
