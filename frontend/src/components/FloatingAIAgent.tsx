@@ -164,7 +164,7 @@ function parseModifyResponse(data: any, context?: any, currentModules?: Module[]
 }
 
 export default function FloatingAIAgent({ modules, setModules, apiBase, rawApiResponse }: FloatingAIAgentProps) {
-  const API_BASE = apiBase || "http://27.0.0.1:8000";
+  const API_BASE = apiBase || "http://127.0.0.1:8000";
 
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);

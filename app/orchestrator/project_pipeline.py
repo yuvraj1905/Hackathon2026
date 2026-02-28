@@ -71,6 +71,8 @@ class ProjectPipeline:
         """
         request_id = str(uuid.uuid4())
         description = project_input.get("description", "")
+        build_options = project_input.get("build_options") or project_input.get("platforms") or []
+        platforms = [str(p).lower().replace("web_app", "web") for p in build_options]
         
         yield {"stage": "domain_detection_started"}
         
@@ -130,7 +132,8 @@ class ProjectPipeline:
         
         tech_stack_result = await self.tech_stack_agent.execute({
             "domain": detected_domain,
-            "features": features
+            "features": features,
+            "platforms": platforms,
         })
         
         yield {"stage": "proposal_started"}

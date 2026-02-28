@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional, List, Dict, Any, Literal
+from typing import Optional, List, Dict, Any, Literal, Union
 from enum import Enum
 
 # Allowed values for what the client wants to build (mobile, web, design, backend, admin)
@@ -63,13 +63,14 @@ class EstimationResult(BaseModel):
 
 
 class TechStackRecommendation(BaseModel):
+    """Accepts both formats: TechStackAgent nested dicts (frontend.web, backend.framework, etc.) or flat lists."""
     model_config = ConfigDict(str_strip_whitespace=True)
     
-    frontend: List[str] = Field(..., description="Frontend technologies")
-    backend: List[str] = Field(..., description="Backend technologies")
-    database: List[str] = Field(..., description="Database technologies")
-    infrastructure: List[str] = Field(..., description="Infrastructure & DevOps")
-    third_party_services: List[str] = Field(default_factory=list, description="Third-party integrations")
+    frontend: Union[List[str], Dict[str, Any]] = Field(..., description="Frontend: list of techs or dict by platform (web/admin/mobile)")
+    backend: Union[List[str], Dict[str, Any]] = Field(..., description="Backend: list of techs or dict (framework, language, orm, etc.)")
+    database: Union[List[str], Dict[str, Any]] = Field(..., description="Database: list or dict (primary, cache, search, etc.)")
+    infrastructure: Union[List[str], Dict[str, Any]] = Field(..., description="Infrastructure: list or dict (cloud_provider, containerization, etc.)")
+    third_party_services: Union[List[str], Dict[str, Any]] = Field(default_factory=list, description="Third-party: list or dict of categories with services")
     justification: str = Field(..., description="Why this stack was recommended")
 
 

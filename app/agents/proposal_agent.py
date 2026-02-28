@@ -34,7 +34,21 @@ Keep all sections concise."""
             for f in features[:15]
         ])
         
-        tech_summary = ", ".join(tech_stack.get("frontend", []) + tech_stack.get("backend", []))
+
+        tech_parts = []
+        front = tech_stack.get("frontend")
+        back = tech_stack.get("backend")
+        if isinstance(front, list):
+            tech_parts.extend(front)
+        elif isinstance(front, dict):
+            for cfg in front.values():
+                if isinstance(cfg, dict):
+                    tech_parts.extend(str(v) for k, v in cfg.items() if v and k not in ("justification", "type"))
+        if isinstance(back, list):
+            tech_parts.extend(back)
+        elif isinstance(back, dict):
+            tech_parts.extend(str(v) for k, v in back.items() if v and k not in ("justification", "type"))
+        tech_summary = ", ".join(tech_parts) if tech_parts else "See tech stack section"
         
         prompt = f"""Domain: {domain}
 Total Estimated Hours: {total_hours}
