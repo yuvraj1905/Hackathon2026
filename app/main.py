@@ -13,8 +13,9 @@ from contextlib import asynccontextmanager
 from io import BytesIO
 import asyncio
 import json
-import logging
+import re
 import uuid as uuid_module
+import logging
 from pathlib import Path
 from typing import Any, Optional
 from dotenv import load_dotenv
@@ -66,7 +67,6 @@ def _get_google_docs_service():
         from app.services.google_docs_service import GoogleDocsService
         _google_docs_service = GoogleDocsService()
     return _google_docs_service
-
 
 async def _get_estimation_data(project_id: str) -> Optional[dict]:
     """
@@ -472,6 +472,7 @@ async def estimate_project(
                 )
         except Exception as e:
             logger.warning("Failed to store project data: %s", str(e))
+        # Cache result for proposal PDF generation
         # Cache result for proposal PDF/Doc (by project_id so same-session and after refresh work)
         if project_id is not None:
             proj_id_str = str(project_id)
@@ -501,7 +502,6 @@ async def estimate_project(
             input_mode
         )
 
-        # Include project_id in response so frontend can use it for PDF/Doc URLs
         out = {**result}
         if project_id is not None:
             out["project_id"] = str(project_id)
@@ -515,7 +515,6 @@ async def estimate_project(
     except Exception as e:
         logger.error(f"Pipeline error: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal estimation error")
-
 
 @app.get("/projects", response_model=list[ProjectListItem])
 async def list_projects(
@@ -583,6 +582,105 @@ async def list_projects(
         raise HTTPException(status_code=500, detail="Failed to load projects")
 
 
+def _parse_add_subfeature_intent(instruction: str):
+    """
+    Parse 'add X as a subfeature in Y' / 'add X subfeature in Y' / 'X as a subfeature in admin management'.
+    Returns (subfeature_name, parent_feature_name) or (None, None).
+    """
+    if not instruction or "subfeature" not in instruction.strip().lower():
+        return None, None
+    instr = instruction.strip()
+    instr_lower = instr.lower()
+    # "add X as a subfeature in Y" or "add X subfeature in Y" or "X as a subfeature in Y"
+    for pattern in [
+        r"add\s+(.+?)\s+as\s+(?:a\s+)?subfeature\s+in\s+(.+)",
+        r"add\s+(.+?)\s+subfeature\s+in\s+(.+)",
+        r"(.+?)\s+as\s+(?:a\s+)?subfeature\s+in\s+(.+)",
+    ]:
+        m = re.search(pattern, instr_lower, re.I | re.DOTALL)
+        if m:
+            sub_name = instr[m.start(1):m.end(1)].strip()
+            parent_name = instr[m.start(2):m.end(2)].strip()
+            if sub_name and parent_name and len(sub_name) < 120:
+                return sub_name.strip().title(), parent_name.strip()
+    return None, None
+
+
+def _apply_deterministic_add_subfeature(features: list, instruction: str) -> list:
+    """When user says 'add X as a subfeature in Y', add X to Y's subfeatures array."""
+    sub_name, parent_name = _parse_add_subfeature_intent(instruction)
+    if not sub_name or not parent_name or not isinstance(features, list):
+        return features
+    parent_lower = parent_name.lower()
+    applied = False
+    for f in features:
+        if not isinstance(f, dict):
+            continue
+        fn = (f.get("name") or "").strip().lower()
+        # Match parent by name (allow partial: "admin management" matches "Admin management")
+        if fn == parent_lower or parent_lower in fn or fn in parent_lower:
+            subs = list(f.get("subfeatures") or [])
+            existing = {str(s.get("name", "")).strip().lower() for s in subs if isinstance(s, dict)}
+            if sub_name.lower() not in existing:
+                subs.append({"name": sub_name})
+                f["subfeatures"] = subs
+                logger.info("Deterministic add subfeature: %r under %r", sub_name, f.get("name"))
+                applied = True
+            break
+    # If we added the subfeature, drop any mistaken top-level feature the LLM may have added
+    # (e.g. "User Info As A Subfeature In Admin Management" with 0 subfeatures)
+    if applied:
+        def is_mistaken_subfeature_as_feature(feat: dict) -> bool:
+            name = (feat.get("name") or "").strip().lower()
+            subs = feat.get("subfeatures") or []
+            return ("subfeature" in name or " as a subfeature " in name) and (not subs or len(subs) == 0)
+        features[:] = [f for f in features if not (isinstance(f, dict) and is_mistaken_subfeature_as_feature(f))]
+    return features
+
+
+def _apply_deterministic_add_feature(features: list, instruction: str) -> list:
+    """When user says 'add X feature' or 'add logout', append that feature so modify API returns it and UI shows it.
+    Skips when instruction is clearly 'add X as subfeature in Y'."""
+    if not instruction or not isinstance(features, list):
+        return features
+    instr = instruction.strip().lower()
+    if "subfeature" in instr:
+        return features
+    if "add" not in instr:
+        return features
+    name = None
+    if " feature" in instr and " subfeature" not in instr:
+        for prefix in ("add a ", "add "):
+            if prefix in instr:
+                start = instr.find(prefix) + len(prefix)
+                end = instr.find(" feature", start)
+                if end > start:
+                    raw = instruction[start:end].strip()
+                    if raw:
+                        name = raw
+                        break
+                break
+    if not name:
+        for prefix in ("add a ", "add "):
+            if prefix in instr:
+                start = instr.find(prefix) + len(prefix)
+                raw = instruction[start:].strip().split(",")[0].split(".")[0].strip()
+                if raw and len(raw) < 80:
+                    name = raw
+                    break
+                break
+    if not name and "logout" in instr:
+        name = "logout"
+    if not name:
+        return features
+    display_name = (name or "").strip().title()
+    existing = {str(f.get("name", "")).strip().lower() for f in features if isinstance(f, dict)}
+    if display_name.lower() in existing:
+        return features
+    logger.info("Deterministic add feature: appending %r (instruction: %s)", display_name, instruction[:60])
+    return features + [{"name": display_name, "category": "Core", "complexity": "medium", "subfeatures": []}]
+
+
 @app.post("/modify", response_model=ModificationResponse)
 async def modify_scope(request: ModificationRequest) -> ModificationResponse:
     """
@@ -597,14 +695,14 @@ async def modify_scope(request: ModificationRequest) -> ModificationResponse:
     try:
         logger.info(f"Processing modification: {request.instruction[:100]}...")
         
-        current_features_list = [
-            {
-                "name": f.name,
-                "category": f.category,
-                "complexity": f.complexity
-            }
-            for f in request.current_features
-        ]
+        current_features_list = []
+        for f in request.current_features:
+            entry = {"name": f.name, "category": f.category, "complexity": f.complexity}
+            if f.subfeatures and len(f.subfeatures) > 0:
+                entry["subfeatures"] = [{"name": sf.name} for sf in f.subfeatures]
+            else:
+                entry["subfeatures"] = []
+            current_features_list.append(entry)
         
         modification_result = await modification_agent.execute({
             "current_features": current_features_list,
@@ -612,6 +710,8 @@ async def modify_scope(request: ModificationRequest) -> ModificationResponse:
         })
         
         updated_features = modification_result.get("features", [])
+        updated_features = _apply_deterministic_add_subfeature(updated_features, request.instruction)
+        updated_features = _apply_deterministic_add_feature(updated_features, request.instruction)
         
         estimation_result = await estimation_agent.execute({
             "features": updated_features,
@@ -619,17 +719,25 @@ async def modify_scope(request: ModificationRequest) -> ModificationResponse:
         })
         
         estimated_features = estimation_result.get("features", [])
-        total_hours = estimation_result.get("total_hours", 0)
+        pipeline_total_hours = estimation_result.get("total_hours", 0)
         min_hours = estimation_result.get("min_hours", 0)
         max_hours = estimation_result.get("max_hours", 0)
         
         formatted_features = []
         for feature in estimated_features:
+            feat_hours = feature.get("total_hours", 0.0)
+            subfeatures_raw = feature.get("subfeatures", [])
+            subfeatures = [
+                {"name": sf.get("name", ""), "effort": sf.get("effort", 0.0)}
+                for sf in subfeatures_raw
+            ]
             formatted_features.append({
                 "name": feature.get("name", ""),
                 "description": feature.get("category", "Core"),
                 "complexity": feature.get("complexity", "Medium").lower(),
-                "estimated_hours": feature.get("final_hours", 0.0),
+                "estimated_hours": feat_hours,
+                "total_hours": feat_hours,
+                "subfeatures": subfeatures,
                 "dependencies": [],
                 "confidence_score": 0.75
             })
@@ -642,7 +750,7 @@ async def modify_scope(request: ModificationRequest) -> ModificationResponse:
         logger.info(f"Modification completed: {len(updated_features)} features")
         
         return ModificationResponse(
-            total_hours=total_hours,
+            total_hours=pipeline_total_hours,
             min_hours=min_hours,
             max_hours=max_hours,
             features=formatted_features,
@@ -733,7 +841,6 @@ def _build_proposal_context(data: dict[str, Any]) -> dict[str, Any]:
             "confidence_score": f.get("confidence_score", 0),
         })
 
-    # Prefer proposal assumptions (LLM-generated) over estimation assumptions (hardcoded fallback)
     assumptions = proposal.get("assumptions", []) or estimation.get("assumptions", [])
 
     return {
@@ -777,19 +884,18 @@ async def get_proposal_pdf(project_id: str) -> StreamingResponse:
 
     Args:
         project_id: The project UUID returned in the /estimate response (use for PDF/Doc links).
-
     Returns:
         Streaming PDF response suitable for inline browser display.
 
     Raises:
-        404 if the estimation is not found (cache or DB). Re-run /estimate to regenerate.
+        404 if the estimation is not found in the cache (re-run /estimate first).
     """
     cached = await _get_estimation_data(project_id)
     if cached is None:
         logger.warning("Proposal PDF requested for unknown project_id=%s", project_id)
         raise HTTPException(
             status_code=404,
-            detail=f"Estimation for project '{project_id}' not found. Re-run the estimation to regenerate.",
+            detail=f"Estimation '{project_id}' not found. Re-run the estimation to regenerate.",
         )
 
     try:
@@ -826,7 +932,7 @@ async def get_proposal_html(project_id: str) -> dict:
     Return rendered proposal HTML and title for client-side Google Docs export.
 
     Args:
-        project_id: The project UUID returned by /estimate (use for PDF/Doc links).
+        project_id: The project UUID returned in the /estimate response (use for PDF/Doc links).
 
     Returns:
         JSON: ``{"html": "<rendered html>", "title": "Project — Proposal"}``
@@ -836,7 +942,7 @@ async def get_proposal_html(project_id: str) -> dict:
         logger.warning("Proposal HTML requested for unknown project_id=%s", project_id)
         raise HTTPException(
             status_code=404,
-            detail=f"Estimation for project '{project_id}' not found. Re-run the estimation to regenerate.",
+            detail=f"Estimation '{project_id}' not found. Re-run the estimation to regenerate.",
         )
 
     try:
@@ -860,14 +966,14 @@ async def get_proposal_google_doc(
     Generate a branded proposal as a native Google Doc and return its edit URL.
 
     Args:
-        project_id: The project UUID returned by /estimate (use for PDF/Doc links).
-        email:      Optional query param — if provided, the doc is shared with this address.
+        project_id: The project UUID returned in the /estimate response (use for PDF/Doc links).
+        email:       Optional query param — if provided, the doc is shared with this address.
 
     Returns:
         JSON: ``{"doc_url": "https://docs.google.com/document/d/.../edit"}``
 
     Raises:
-        404: estimation not found (cache or DB); re-run /estimate first.
+        404: estimation not in cache (re-run /estimate first).
         503: service account credentials missing or invalid.
         502: Google API returned an unexpected error.
     """
@@ -876,7 +982,7 @@ async def get_proposal_google_doc(
         logger.warning("Google Doc requested for unknown project_id=%s", project_id)
         raise HTTPException(
             status_code=404,
-            detail=f"Estimation for project '{project_id}' not found. Re-run the estimation to regenerate.",
+            detail=f"Estimation '{project_id}' not found. Re-run the estimation to regenerate.",
         )
 
     # Resolve share email: use provided value, fall back to configured default

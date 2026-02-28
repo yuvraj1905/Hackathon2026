@@ -61,7 +61,6 @@ export function EstimateFeaturesTable({
                 <th className="min-w-[200px]">Subfeature</th>
                 <th className="w-20 text-center">FE hrs</th>
                 <th className="w-20 text-center">BE hrs</th>
-                <th className="w-24 text-center">Integ.</th>
                 <th className="w-20 text-center">Test</th>
                 <th className="w-20 text-center text-primary">Total</th>
                 <th className="w-20 text-center">Actions</th>
@@ -89,7 +88,6 @@ export function EstimateFeaturesTable({
                       </td>
                       <td className="text-center text-sm font-medium font-mono">{fmtNum(mod.tasks.reduce((a, t) => a + t.frontend, 0))}</td>
                       <td className="text-center text-sm font-medium font-mono">{fmtNum(mod.tasks.reduce((a, t) => a + t.backend, 0))}</td>
-                      <td className="text-center text-sm font-medium font-mono">{fmtNum(mod.tasks.reduce((a, t) => a + (t.integration ?? 0), 0))}</td>
                       <td className="text-center text-sm font-medium font-mono">{fmtNum(mod.tasks.reduce((a, t) => a + t.testing, 0))}</td>
                       <td className="text-center font-mono text-sm font-bold text-primary">{fmtNum(mod.tasks.reduce((a, t) => a + t.total, 0))}</td>
                       <td className="text-center">
@@ -122,7 +120,7 @@ export function EstimateFeaturesTable({
                             </td>
                             <td>
                               <div className="flex items-center gap-1.5">
-                                {task.children?.length ? (
+                                {(task.children?.length ?? 0) > 0 ? (
                                   <>
                                     <button
                                       onClick={(e) => {
@@ -138,11 +136,11 @@ export function EstimateFeaturesTable({
                                       )}
                                     </button>
                                     <span className="text-muted-foreground text-sm">
-                                      {task.children.length} subfeature{task.children.length !== 1 ? "s" : ""}
+                                      {task.children!.length} subfeature{task.children!.length !== 1 ? "s" : ""}
                                     </span>
                                   </>
                                 ) : (
-                                  <span className="text-muted-foreground/60">—</span>
+                                  <span className="text-muted-foreground/60 text-sm">0 subfeatures</span>
                                 )}
                               </div>
                             </td>
@@ -151,9 +149,6 @@ export function EstimateFeaturesTable({
                             </td>
                             <td className="text-center">
                               <EditableCell value={task.backend} onChange={(v) => updateTaskField(mod.id, task.id, "backend", v)} />
-                            </td>
-                            <td className="text-center">
-                              <EditableCell value={task.integration ?? 0} onChange={(v) => updateTaskField(mod.id, task.id, "integration", v)} />
                             </td>
                             <td className="text-center">
                               <EditableCell value={task.testing} onChange={(v) => updateTaskField(mod.id, task.id, "testing", v)} />
@@ -207,12 +202,6 @@ export function EstimateFeaturesTable({
                                 </td>
                                 <td className="text-center">
                                   <EditableCell
-                                    value={child.integration ?? 0}
-                                    onChange={(v) => updateTaskField(mod.id, task.id, "integration", v, child.id)}
-                                  />
-                                </td>
-                                <td className="text-center">
-                                  <EditableCell
                                     value={child.testing}
                                     onChange={(v) => updateTaskField(mod.id, task.id, "testing", v, child.id)}
                                   />
@@ -240,7 +229,6 @@ export function EstimateFeaturesTable({
                 </td>
                 <td className="text-center text-sm font-mono text-primary">{fmtNum(totalsByColumn.frontend)}</td>
                 <td className="text-center text-sm font-mono text-primary">{fmtNum(totalsByColumn.backend)}</td>
-                <td className="text-center text-sm font-mono text-primary">{fmtNum(totalsByColumn.integration)}</td>
                 <td className="text-center text-sm font-mono text-primary">{fmtNum(totalsByColumn.testing)}</td>
                 <td className="text-center font-mono text-base font-bold text-primary">{fmtNum(totalsByColumn.total)}</td>
                 <td />
@@ -256,10 +244,9 @@ export function EstimateFeaturesTable({
             {[
               { color: "bg-blue-500", label: "Frontend", val: totalsByColumn.frontend },
               { color: "bg-violet-500", label: "Backend", val: totalsByColumn.backend },
-              { color: "bg-amber-500", label: "Integration", val: totalsByColumn.integration },
               { color: "bg-emerald-500", label: "Testing", val: totalsByColumn.testing },
             ].map((l) => (
-              <span key={l.label} className="flex items-centered gap-2">
+              <span key={l.label} className="flex items-center gap-2">
                 <span className={`h-2 w-2 rounded-full ${l.color}`} /> {l.label}{" "}
                 <strong className="font-mono text-foreground">{fmtNum(l.val)}</strong>
               </span>

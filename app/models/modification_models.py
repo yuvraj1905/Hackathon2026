@@ -1,5 +1,10 @@
 from pydantic import BaseModel, Field, ConfigDict
-from typing import List
+from typing import List, Optional
+
+
+class SubFeatureInput(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+    name: str = Field(..., description="Subfeature name")
 
 
 class FeatureInput(BaseModel):
@@ -8,6 +13,7 @@ class FeatureInput(BaseModel):
     name: str = Field(..., description="Feature name")
     category: str = Field(..., description="Feature category")
     complexity: str = Field(..., description="Feature complexity")
+    subfeatures: Optional[List[SubFeatureInput]] = Field(default=None, description="Subfeatures under this feature")
 
 
 class ModificationRequest(BaseModel):

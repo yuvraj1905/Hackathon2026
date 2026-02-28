@@ -10,12 +10,12 @@ import {
   EstimateSearchBar,
   EstimateFeaturesTable,
   TechStackSection,
-  ResourceAllocationTable,
   EstimateCtaBar,
 } from "./estimate-results";
 import type { StatCard } from "./estimate-results";
 
 export interface EstimatesResultsSectionProps {
+  estimateTableKey?: number;
   statCards: StatCard[];
   summaryData: { domain: string; platforms?: string[]; totalHours: number; timeline: string; confidence: number };
   proposalData: ProposalData | null;
@@ -46,6 +46,7 @@ export interface EstimatesResultsSectionProps {
 }
 
 export function EstimatesResultsSection({
+  estimateTableKey = 0,
   statCards,
   summaryData,
   proposalData,
@@ -73,40 +74,50 @@ export function EstimatesResultsSection({
       key="results"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      transition={{ duration: 0.5 }}
-      className="space-y-7"
+      transition={{ duration: 0.4 }}
+      className="space-y-6"
     >
-      <EstimateStatCards cards={statCards} />
+      {/* Estimate summary section */}
+      <section className="rounded-2xl bg-card/30 backdrop-blur-sm overflow-hidden">
+        <div className="p-5 md:p-6 space-y-5">
+          <EstimateStatCards cards={statCards} />
 
-      <EstimateSummaryPills summaryData={summaryData} proposalData={proposalData} />
+          <EstimateSummaryPills summaryData={summaryData} proposalData={proposalData} />
 
-      <EstimateSearchBar
-        searchQuery={searchQuery}
-        onSearchChange={onSearchChange}
-        onExpandAll={expandAll}
-        onCollapseAll={collapseAll}
-      />
+          <EstimateSearchBar
+            searchQuery={searchQuery}
+            onSearchChange={onSearchChange}
+            onExpandAll={expandAll}
+            onCollapseAll={collapseAll}
+          />
+        </div>
+      </section>
 
-      <EstimateFeaturesTable
-        filteredModules={filteredModules}
-        totalsByColumn={totalsByColumn}
-        searchQuery={searchQuery}
-        taskExpanded={taskExpanded}
-        onSearchChange={onSearchChange}
-        toggleModule={toggleModule}
-        toggleTask={toggleTask}
-        updateTaskName={updateTaskName}
-        updateTaskField={updateTaskField}
-        addTask={addTask}
-        addSubFeature={addSubFeature}
-        deleteTask={deleteTask}
-      />
+      <motion.section
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.15 }}
+      >
+        <EstimateFeaturesTable
+          key={`estimate-table-${estimateTableKey}-${modules.reduce((a, m) => a + m.tasks.length, 0)}`}
+          filteredModules={filteredModules}
+          totalsByColumn={totalsByColumn}
+          searchQuery={searchQuery}
+          taskExpanded={taskExpanded}
+          onSearchChange={onSearchChange}
+          toggleModule={toggleModule}
+          toggleTask={toggleTask}
+          updateTaskName={updateTaskName}
+          updateTaskField={updateTaskField}
+          addTask={addTask}
+          addSubFeature={addSubFeature}
+          deleteTask={deleteTask}
+        />
+      </motion.section>
 
       {(techStackStructured || techStack.length > 0) && (
         <TechStackSection techStackStructured={techStackStructured} techStack={techStack} />
       )}
-
-      <ResourceAllocationTable resources={resources} />
 
       <EstimateCtaBar />
     </motion.div>

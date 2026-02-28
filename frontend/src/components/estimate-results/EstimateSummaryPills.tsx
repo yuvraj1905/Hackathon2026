@@ -40,7 +40,6 @@ export function EstimateSummaryPills({ summaryData, proposalData }: EstimateSumm
           {summaryData.timeline}
         </span>
       )}
-      {summaryData.confidence > 0 && <span className="pill-accent">{summaryData.confidence}% confidence</span>}
       {proposalData && proposalData.minHours > 0 && (
         <span className="pill-muted">
           {fmtNum(proposalData.minHours)}–{fmtNum(proposalData.maxHours)} hrs range

@@ -99,10 +99,10 @@ const LoadingOverlay = () => {
               )}
               <span
                 className={`text-sm font-medium transition-colors duration-300 ${active
-                    ? "text-foreground"
-                    : done
-                      ? "text-emerald-400/80"
-                      : "text-muted-foreground/30"
+                  ? "text-foreground"
+                  : done
+                    ? "text-emerald-400/80"
+                    : "text-muted-foreground/30"
                   }`}
               >
                 {s.label}
@@ -249,8 +249,8 @@ export function EstimateInputSection({
                 </label>
                 <span
                   className={`tabular-nums text-xs font-mono ${projectDesc.length > 0 && projectDesc.length < 10
-                      ? "text-destructive"
-                      : "text-muted-foreground/60"
+                    ? "text-destructive"
+                    : "text-muted-foreground/60"
                     }`}
                 >
                   {projectDesc.length}

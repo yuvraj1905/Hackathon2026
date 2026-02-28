@@ -59,7 +59,6 @@ export function TechStackSection({ techStackStructured, techStack }: TechStackSe
               );
             })}
 
-          {/* Backend */}
           {Boolean(techStackStructured!.backend && typeof techStackStructured!.backend === "object" && !Array.isArray(techStackStructured!.backend)) && (
             <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="card-spotlight rounded-2xl p-5 border border-border/30">
               <h3 className="text-sm font-bold text-primary mb-2 flex items-center gap-2">
@@ -71,7 +70,8 @@ export function TechStackSection({ techStackStructured, techStack }: TechStackSe
                   .filter(
                     ([k]) =>
                       !["justification", "type", "recommended"].includes(k) &&
-                      (techStackStructured!.backend as Record<string, unknown>)[k] != null,
+                      (techStackStructured!.backend as Record<string, unknown>)[k] != null &&
+                      (techStackStructured!.backend as Record<string, unknown>)[k] !== "",
                   )
                   .map(([k, v]) => (
                     <div key={k} className="flex justify-between gap-2 text-xs py-0.5">
@@ -145,46 +145,46 @@ export function TechStackSection({ techStackStructured, techStack }: TechStackSe
           {/* Third-party services */}
           {Boolean(
             techStackStructured!.third_party_services &&
-              typeof techStackStructured!.third_party_services === "object" &&
-              !Array.isArray(techStackStructured!.third_party_services),
+            typeof techStackStructured!.third_party_services === "object" &&
+            !Array.isArray(techStackStructured!.third_party_services),
           ) && (
-            <motion.div
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="card-spotlight rounded-2xl p-5 border border-border/30 sm:col-span-2 lg:col-span-1"
-            >
-              <h3 className="text-sm font-bold text-primary mb-2 flex items-center gap-2">
-                <Zap className="h-4 w-4" />
-                Third-party services
-              </h3>
-              <div className="space-y-2">
-                {Object.entries(
-                  techStackStructured!.third_party_services as Record<string, { services?: Array<{ name?: string; justification?: string }> }>,
-                ).map(([category, data]) => {
-                  const services = data?.services;
-                  if (!Array.isArray(services) || services.length === 0) return null;
-                  const catLabel = category.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-                  return (
-                    <div key={category}>
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-0.5">{catLabel}</p>
-                      <ul className="space-y-0.5">
-                        {services.map((s, i) => (
-                          <li key={i} className="text-xs flex justify-between gap-2 py-0.5 min-w-0">
-                            <span className="font-medium shrink-0">{s.name ?? "—"}</span>
-                            {s.justification && (
-                              <span className="text-muted-foreground text-[11px] min-w-0 truncate" title={s.justification}>
-                                {s.justification}
-                              </span>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  );
-                })}
-              </div>
-            </motion.div>
-          )}
+              <motion.div
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="card-spotlight rounded-2xl p-5 border border-border/30 sm:col-span-2 lg:col-span-1"
+              >
+                <h3 className="text-sm font-bold text-primary mb-2 flex items-center gap-2">
+                  <Zap className="h-4 w-4" />
+                  Third-party services
+                </h3>
+                <div className="space-y-2">
+                  {Object.entries(
+                    techStackStructured!.third_party_services as Record<string, { services?: Array<{ name?: string; justification?: string }> }>,
+                  ).map(([category, data]) => {
+                    const services = data?.services;
+                    if (!Array.isArray(services) || services.length === 0) return null;
+                    const catLabel = category.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+                    return (
+                      <div key={category}>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-0.5">{catLabel}</p>
+                        <ul className="space-y-0.5">
+                          {services.map((s, i) => (
+                            <li key={i} className="text-xs flex justify-between gap-2 py-0.5 min-w-0">
+                              <span className="font-medium shrink-0">{s.name ?? "—"}</span>
+                              {s.justification && (
+                                <span className="text-muted-foreground text-[11px] min-w-0 truncate" title={s.justification}>
+                                  {s.justification}
+                                </span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    );
+                  })}
+                </div>
+              </motion.div>
+            )}
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
