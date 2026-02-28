@@ -216,14 +216,6 @@
     </div>
   </div>
 
-  <!-- ═══════════════════ ABSTRACT ═════════════════ -->
-  {% if abstract %}
-  <div class="section avoid-break">
-    <h2>Abstract</h2>
-    <p>{{ abstract }}</p>
-  </div>
-  {% endif %}
-
   <!-- ═══════════════════ 1. EXECUTIVE SUMMARY ═════ -->
   <div class="section avoid-break">
     <h2>1. Executive Summary</h2>
@@ -427,58 +419,15 @@
     </p>
   </div>
 
-  <!-- ═════════════ 8. PROJECT TIMELINE ════════════ -->
-  {% if project_timeline %}
-  <div class="section avoid-break">
-    <h2>8. Project Timeline</h2>
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th style="width:25%;">Phase</th>
-          <th style="width:20%;">Duration</th>
-          <th style="width:55%;">Description</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for phase in project_timeline %}
-        <tr>
-          <td><strong>{{ phase.phase }}</strong></td>
-          <td>{{ phase.duration }}</td>
-          <td>{{ phase.description }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% endif %}
-
-  <!-- ═════════════════════ 9. ASSUMPTIONS ════════ -->
+  <!-- ═════════════════════ 8. ASSUMPTIONS ════════ -->
   {% if assumptions %}
   <div class="section avoid-break">
-    <h2>9. Assumptions</h2>
-    <p style="font-size:9pt; color:#6B7280; margin-bottom:6pt;">
-      Key factors and considerations for successful project delivery:
-    </p>
+    <h2>8. Assumptions</h2>
     <ol class="numbered">
       {% for assumption in assumptions %}
       <li>{{ assumption }}</li>
       {% endfor %}
     </ol>
-  </div>
-  {% endif %}
-
-  <!-- ═══════════ 10. CLIENT DEPENDENCIES ═════════ -->
-  {% if client_dependencies %}
-  <div class="section avoid-break">
-    <h2>10. Client Dependencies</h2>
-    <p style="font-size:9pt; color:#6B7280; margin-bottom:6pt;">
-      The following items are required from the client for successful delivery:
-    </p>
-    <ul class="styled">
-      {% for dep in client_dependencies %}
-      <li>{{ dep }}</li>
-      {% endfor %}
-    </ul>
   </div>
   {% endif %}
 

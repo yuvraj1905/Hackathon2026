@@ -188,8 +188,6 @@ class ProjectPipeline:
             "total_hours": total_hours,
             "tech_stack": tech_stack_result,
             "timeline_constraint": timeline_constraint,
-            "description": description,
-            "additional_details": additional_details,
         })
         
         # ========== STAGE 8: Planning ==========
@@ -215,11 +213,11 @@ class ProjectPipeline:
                 "features": formatted_features,
                 "overall_complexity": self._calculate_overall_complexity(estimated_features),
                 "confidence_score": round(confidence_score / 100, 2),
-                "assumptions": proposal_result.get("assumptions", [
+                "assumptions": [
                     "Estimates include 15% buffer for unforeseen complexity",
                     "Assumes standard development practices and code quality",
                     "Third-party API integrations assumed to have stable documentation"
-                ])
+                ]
             },
             "tech_stack": tech_stack_result,
             "proposal": proposal_result,

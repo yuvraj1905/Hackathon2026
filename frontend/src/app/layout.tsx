@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import Script from "next/script";
 import "./globals.css";
 import { Providers } from "@/components/Providers";
-import { ThemeToggle } from "@/components/ThemeToggle";
 
 export const metadata: Metadata = {
   title: "Neural Architects - Proposal Pilot",
@@ -18,7 +17,6 @@ export default function RootLayout({
     <html lang="en">
       <body>
         <Providers>
-          <ThemeToggle />
           {children}
         </Providers>
         <Script

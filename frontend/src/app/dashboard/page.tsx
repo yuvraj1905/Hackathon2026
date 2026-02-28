@@ -13,6 +13,7 @@ import {
   Server,
   TestTube,
 } from "lucide-react";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
@@ -32,7 +33,7 @@ import { ProposalsSection } from "../../components/ProposalsSection";
 import {
   appendProposalToHistory,
   fetchEstimate,
-  fetchProjects,
+  loadProposalsHistory,
   setLastEstimateRaw,
   takeLastEstimateRaw,
   type StoredProposalSummary,
@@ -56,8 +57,6 @@ export default function DashboardPage() {
   const [proposalsHistory, setProposalsHistory] = useState<
     StoredProposalSummary[]
   >([]);
-  const [proposalsLoading, setProposalsLoading] = useState(true);
-  const [proposalsError, setProposalsError] = useState<string | null>(null);
   const [rawApiResponse, setRawApiResponse] = useState<any>(null);
   const [taskExpanded, setTaskExpanded] = useState<Record<string, boolean>>(
     {},
@@ -76,25 +75,7 @@ export default function DashboardPage() {
   const { toast } = useToast();
 
   useEffect(() => {
-    let cancelled = false;
-    setProposalsLoading(true);
-    setProposalsError(null);
-    fetchProjects()
-      .then((list) => {
-        if (!cancelled) setProposalsHistory(list);
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setProposalsError(err?.message ?? "Failed to load proposals");
-          setProposalsHistory([]);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setProposalsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+    setProposalsHistory(loadProposalsHistory());
   }, []);
 
   useEffect(() => {
@@ -167,8 +148,6 @@ export default function DashboardPage() {
       setShowResults(true);
       setActiveTab("estimates");
       toast({ title: "Estimation ready!" });
-      // Refetch projects so the new one appears in the Proposals tab
-      fetchProjects().then(setProposalsHistory).catch(() => {});
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "";
       const isNet = msg === "Failed to fetch" || msg.includes("NetworkError") || msg.includes("Load failed");
@@ -194,14 +173,19 @@ export default function DashboardPage() {
     (id: string) => setTaskExpanded((p) => ({ ...p, [id]: !p[id] })),
     [],
   );
-  const expandAll = useCallback(
-    () => setModules((p) => p.map((m) => ({ ...m, expanded: true }))),
-    [],
-  );
-  const collapseAll = useCallback(
-    () => setModules((p) => p.map((m) => ({ ...m, expanded: false }))),
-    [],
-  );
+  const expandAll = useCallback(() => {
+    setModules((p) => p.map((m) => ({ ...m, expanded: true })));
+    setTaskExpanded((prev) => {
+      const taskIdsWithChildren = modules.flatMap((m) =>
+        m.tasks.filter((t) => (t.children?.length ?? 0) > 0).map((t) => t.id),
+      );
+      return { ...prev, ...Object.fromEntries(taskIdsWithChildren.map((id) => [id, true])) };
+    });
+  }, [modules]);
+  const collapseAll = useCallback(() => {
+    setModules((p) => p.map((m) => ({ ...m, expanded: false })));
+    setTaskExpanded({});
+  }, []);
   const toggleSection = (key: string) =>
     setExpandedSections((p) => ({ ...p, [key]: !p[key] }));
 
@@ -481,15 +465,15 @@ export default function DashboardPage() {
         bg: "stat-purple",
         icon: Server,
       },
-      {
-        label: "Testing / QA",
-        value: fmtNum(totalsByColumn.testing),
-        meta: "Quality assurance",
-        color: "text-emerald-400",
-        iconColor: "text-emerald-400",
-        bg: "stat-green",
-        icon: TestTube,
-      },
+      // {
+      //   label: "Design",
+      //   value: fmtNum(totalsByColumn.design),
+      //   meta: "Quality assurance",
+      //   color: "text-emerald-400",
+      //   iconColor: "text-emerald-400",
+      //   bg: "stat-green",
+      //   icon: TestTube,
+      // },
     ],
     [totalsByColumn, modules.length, featureCount],
   );
@@ -573,18 +557,7 @@ export default function DashboardPage() {
                 <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Clear
               </Button>
             )}
-            <Link href="/history">
-              <Button
-                variant="outline"
-                size="sm"
-                className="rounded-xl border-border/40 hover:border-primary/30 hover:bg-primary/5 text-xs font-medium"
-              >
-                <History className="w-3.5 h-3.5 mr-1.5" />
-                <span className="hidden sm:inline">
-                  History
-                </span>
-              </Button>
-            </Link>
+            <ThemeToggle inline className="h-8 w-8 rounded-xl border-border/40 hover:bg-primary/5" />
             <Link href="/">
               <Button
                 variant="ghost"
@@ -616,8 +589,6 @@ export default function DashboardPage() {
                 totalHours: summaryData.totalHours,
               }}
               proposals={proposalsHistory}
-              loading={proposalsLoading}
-              error={proposalsError}
             />
           </TabsContent>
 
@@ -640,41 +611,44 @@ export default function DashboardPage() {
                   onGenerate={handleGenerate}
                 />
               ) : (
-                <EstimatesResultsSection
-                  statCards={statCards}
-                  summaryData={summaryData}
-                  proposalData={proposalData}
-                  searchQuery={searchQuery}
-                  onSearchChange={setSearchQuery}
-                  modules={modules}
-                  filteredModules={filteredModules}
-                  totalsByColumn={totalsByColumn}
-                  expandAll={expandAll}
-                  collapseAll={collapseAll}
-                  toggleModule={toggleModule}
-                  toggleTask={toggleTask}
-                  taskExpanded={taskExpanded}
-                  updateTaskName={updateTaskName}
-                  updateTaskField={updateTaskField}
-                  addTask={addTask}
-                  addSubFeature={addSubFeature}
-                  deleteTask={deleteTask}
-                  techStack={techStack}
-                  techStackStructured={techStackStructured}
-                  resources={resources}
-                />
+                <>
+                  <EstimatesResultsSection
+                    statCards={statCards}
+                    summaryData={summaryData}
+                    proposalData={proposalData}
+                    searchQuery={searchQuery}
+                    onSearchChange={setSearchQuery}
+                    modules={modules}
+                    filteredModules={filteredModules}
+                    totalsByColumn={totalsByColumn}
+                    expandAll={expandAll}
+                    collapseAll={collapseAll}
+                    toggleModule={toggleModule}
+                    toggleTask={toggleTask}
+                    taskExpanded={taskExpanded}
+                    updateTaskName={updateTaskName}
+                    updateTaskField={updateTaskField}
+                    addTask={addTask}
+                    addSubFeature={addSubFeature}
+                    deleteTask={deleteTask}
+                    techStack={techStack}
+                    techStackStructured={techStackStructured}
+                    resources={resources}
+                  />
+                  {modules.length > 0 && (
+                    <FloatingAIAgent
+                      modules={modules}
+                      setModules={setModules}
+                      apiBase={process.env.NEXT_PUBLIC_API_BASE}
+                      rawApiResponse={rawApiResponse}
+                    />
+                  )}
+                </>
               )}
             </AnimatePresence>
           </TabsContent>
         </Tabs>
       </div>
-
-      <FloatingAIAgent
-        modules={modules}
-        setModules={setModules}
-        apiBase={process.env.NEXT_PUBLIC_API_BASE}
-        rawApiResponse={rawApiResponse}
-      />
     </div>
   );
 }

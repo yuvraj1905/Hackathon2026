@@ -17,61 +17,51 @@ class TechStackAgent(BaseAgent):
     # PLATFORM-BASED FRONTEND MAPPING
     # ==========================================================================
     
+    # Frontend: no "language" key; state_management is a single choice (Zustand or Redux), not both.
     PLATFORM_FRONTEND_MAPPING = {
         "web": {
             "framework": "Next.js",
-            "language": "TypeScript",
             "styling": "TailwindCSS",
-            "state_management": "Zustand/Redux Toolkit",
+            "state_management": "Zustand",
             "justification": "Next.js provides SSR/SSG for SEO, fast page loads, and excellent developer experience with TypeScript."
         },
         "admin": {
             "framework": "Next.js",
-            "language": "TypeScript", 
             "styling": "TailwindCSS",
             "ui_library": "Shadcn/UI or Ant Design",
-            "state_management": "Zustand/Redux Toolkit",
+            "state_management": "Zustand",
             "justification": "Next.js with component libraries enables rapid admin dashboard development with pre-built UI components."
         },
         "mobile_simple": {
             "framework": "React Native",
-            "language": "TypeScript",
             "styling": "StyleSheet/NativeWind",
             "navigation": "React Navigation",
-            "state_management": "Zustand/Redux Toolkit",
+            "state_management": "Zustand",
             "build_service": "Expo EAS",
             "justification": "React Native is ideal for apps with simple UI/animations. Code sharing with web (Next.js) and faster development cycle."
         },
         "mobile_complex": {
             "framework": "Flutter",
-            "language": "Dart",
             "styling": "Flutter Widgets",
-            "state_management": "Riverpod/BLoC",
+            "state_management": "Riverpod",
             "build_service": "Codemagic/Fastlane",
             "justification": "Flutter excels at complex animations, custom UI, and pixel-perfect designs with 60fps performance."
         },
         "mobile_with_web": {
             "framework": "React Native",
-            "language": "TypeScript",
             "styling": "StyleSheet/NativeWind",
             "navigation": "React Navigation",
-            "state_management": "Zustand/Redux Toolkit",
+            "state_management": "Zustand",
             "build_service": "Expo EAS",
             "justification": "React Native chosen for maximum code sharing with Next.js web app. Shared business logic and similar developer experience."
         }
     }
     
-    # ==========================================================================
-    # BACKEND CONFIGURATION (NestJS Only)
-    # ==========================================================================
-    
+    # Backend: no language, authentication, or validator keys. API style exposed as "API Architecture Style".
     BACKEND_CONFIG = {
         "framework": "NestJS",
-        "language": "TypeScript",
         "orm": "Prisma",
-        "api_style": "REST + GraphQL (optional)",
-        "authentication": "Passport.js + JWT",
-        "validation": "class-validator",
+        "api_architecture_style": "REST + GraphQL (optional)",
         "documentation": "Swagger/OpenAPI",
         "testing": "Jest",
         "logging": "Winston/Pino",

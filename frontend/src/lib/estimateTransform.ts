@@ -298,7 +298,7 @@ export function transformEstimateResponse(data: any): TransformEstimateResult {
         const subfeatures: any[] = Array.isArray(f.subfeatures)
             ? f.subfeatures
             : [];
-        const children: SubTask[] | undefined =
+        let children: SubTask[] | undefined =
             subfeatures.length > 0
                 ? subfeatures.map((sf: any, j: number) => {
                       const eff = Number(sf.effort) || 0;
@@ -315,9 +315,14 @@ export function transformEstimateResponse(data: any): TransformEstimateResult {
                       };
                   })
                 : undefined;
+        const featureName = (f.name || f.description || "").trim() || `Feature ${i + 1}`;
+        // Single subfeature with same name as feature = feature-only (no real subfeatures to show)
+        if (children?.length === 1 && (children[0].name || "").toLowerCase() === featureName.toLowerCase()) {
+            children = undefined;
+        }
         return {
             id: String(i + 1),
-            name: (f.name || f.description || "").trim() || `Feature ${i + 1}`,
+            name: featureName,
             frontend: fe,
             backend: be,
             integration: integ,
@@ -377,23 +382,14 @@ export function transformEstimateResponse(data: any): TransformEstimateResult {
     };
 
     const proposal: ProposalData = {
-        abstract: proposalRaw.abstract || "",
         executiveSummary: proposalRaw.executive_summary || "",
         scopeOfWork: proposalRaw.scope_of_work || "",
         deliverables: Array.isArray(proposalRaw.deliverables)
             ? proposalRaw.deliverables
             : [],
-        projectTimeline: Array.isArray(proposalRaw.project_timeline)
-            ? proposalRaw.project_timeline
-            : [],
         risks: Array.isArray(proposalRaw.risks) ? proposalRaw.risks : [],
-        assumptions: Array.isArray(proposalRaw.assumptions)
-            ? proposalRaw.assumptions
-            : Array.isArray(estimation.assumptions)
-                ? estimation.assumptions
-                : [],
-        clientDependencies: Array.isArray(proposalRaw.client_dependencies)
-            ? proposalRaw.client_dependencies
+        assumptions: Array.isArray(estimation.assumptions)
+            ? estimation.assumptions
             : [],
         minHours: Number(estimation.min_hours) || 0,
         maxHours: Number(estimation.max_hours) || 0,

@@ -59,44 +59,78 @@ function getPhaseRatiosFromModules(modules: Module[]) {
 }
 
 function parseModifyResponse(data: any, context?: any, currentModules?: Module[]): Module[] | null {
-
-  if (
+  const isModifyResponse =
     data &&
     Array.isArray(data.features) &&
+    data.features.length > 0 &&
     typeof data.total_hours === "number" &&
-    !data.modules &&
-    !data.estimation
-  ) {
-    const features: any[] = data.features;
-    if (features.length === 0) return null;
+    !Array.isArray(data.modules);
 
+  if (isModifyResponse) {
+    const features: any[] = data.features;
+
+    // Use only API/context or current table ratios; if none, put hours in integration only
     const ratios =
-      getPhaseRatiosFromContext(context) ?? getPhaseRatiosFromModules(currentModules ?? []);
+      getPhaseRatiosFromContext(context) ??
+      getPhaseRatiosFromModules(currentModules ?? []) ?? {
+        frontend: 0,
+        backend: 0,
+        testing: 0,
+      };
+
+    function splitHours(hours: number) {
+      const fe = Math.round(hours * ratios!.frontend * 10) / 10;
+      const be = Math.round(hours * ratios!.backend * 10) / 10;
+      const test = Math.round(hours * ratios!.testing * 10) / 10;
+      const integ = Math.max(0, Math.round((hours - fe - be - test) * 10) / 10);
+      return { fe, be, test, integ };
+    }
 
     const tasks: SubTask[] = features.map((f: any, i: number) => {
-      const hours = Number(f.estimated_hours) || 0;
-      let fe = 0, be = 0, test = 0;
-      if (ratios) {
-        fe = Math.round(hours * ratios.frontend * 10) / 10;
-        be = Math.round(hours * ratios.backend * 10) / 10;
-        test = Math.round(hours * ratios.testing * 10) / 10;
+      const hours = Number(f.total_hours ?? f.estimated_hours) || 0;
+      const { fe, be, test, integ } = splitHours(hours);
+      const complexity = (f.complexity || "").toString().toLowerCase() || undefined;
+      const featureName = (f.name ?? "").toString().trim();
+      const subfeatures: any[] = Array.isArray(f.subfeatures) ? f.subfeatures : [];
+      let children: SubTask[] | undefined =
+        subfeatures.length > 0
+          ? subfeatures.map((sf: any, j: number) => {
+              const eff = Number(sf.effort) || 0;
+              const s = splitHours(eff);
+              return {
+                id: `${i + 1}-${j + 1}`,
+                name: (sf.name ?? "").toString().trim(),
+                frontend: s.fe,
+                backend: s.be,
+                integration: s.integ,
+                testing: s.test,
+                total: eff,
+                ...(complexity ? { complexity } : {}),
+              };
+            })
+          : undefined;
+      if (children?.length === 1 && children[0].name.toLowerCase() === featureName.toLowerCase()) {
+        children = undefined;
       }
       return {
         id: String(i + 1),
-        name: (f.name || "").toString() || `Feature ${i + 1}`,
+        name: featureName,
         frontend: fe,
         backend: be,
-        integration: 0,
+        integration: integ,
         testing: test,
         total: hours,
+        ...(complexity ? { complexity } : {}),
+        children,
       };
     });
 
+    // Module name only from API context (domain_detection from original estimate)
     const domainDetection = context?.domain_detection || context?.context?.domain_detection;
     const domainStr = (domainDetection?.detected_domain ?? "").toString().replace(/_/g, " ").trim();
     const moduleName = domainStr
       ? domainStr.charAt(0).toUpperCase() + domainStr.slice(1)
-      : "Project";
+      : "";
 
     return [
       {
@@ -108,31 +142,32 @@ function parseModifyResponse(data: any, context?: any, currentModules?: Module[]
     ];
   }
 
+  // Nested response (e.g. main estimate): modules or estimation.modules/estimation.features
   const rawModules: any[] =
-    data?.modules || data?.features || data?.estimation?.modules || data?.estimation?.features || [];
+    data?.modules ?? data?.estimation?.modules ?? data?.estimation?.features ?? [];
 
   if (!rawModules || rawModules.length === 0) return null;
 
-  return rawModules.map((mod: any, idx: number) => {
-    const moduleId = String(mod.id || idx + 1);
-    const rawTasks: any[] = mod.tasks || mod.sub_features || mod.subFeatures || mod.features || [];
+    return rawModules.map((mod: any, idx: number) => {
+    const moduleId = String(mod.id ?? idx + 1);
+    const rawTasks: any[] = mod.tasks ?? mod.sub_features ?? mod.subFeatures ?? mod.features ?? [];
 
     const tasks: SubTask[] = rawTasks.map((task: any, tIdx: number) => {
-      const taskId = String(task.id || `${moduleId}.${tIdx + 1}`);
-      const fe = task.frontend || task.frontend_hours || task.fe_hours || 0;
-      const be = task.backend || task.backend_hours || task.be_hours || 0;
-      const test = task.testing || task.testing_hours || task.qa_hours || 0;
+      const taskId = String(task.id ?? `${moduleId}.${tIdx + 1}`);
+      const fe = task.frontend ?? task.frontend_hours ?? task.fe_hours ?? 0;
+      const be = task.backend ?? task.backend_hours ?? task.be_hours ?? 0;
+      const test = task.testing ?? task.testing_hours ?? task.qa_hours ?? 0;
 
-      const rawChildren: any[] = task.children || task.sub_features || task.subFeatures || [];
+      const rawChildren: any[] = task.children ?? task.sub_features ?? task.subFeatures ?? [];
       const children: SubTask[] | undefined =
         rawChildren.length > 0
           ? rawChildren.map((child: any, cIdx: number) => {
-            const cFe = child.frontend || child.frontend_hours || child.fe_hours || 0;
-            const cBe = child.backend || child.backend_hours || child.be_hours || 0;
-            const cTest = child.testing || child.testing_hours || child.qa_hours || 0;
+            const cFe = child.frontend ?? child.frontend_hours ?? child.fe_hours ?? 0;
+            const cBe = child.backend ?? child.backend_hours ?? child.be_hours ?? 0;
+            const cTest = child.testing ?? child.testing_hours ?? child.qa_hours ?? 0;
             return {
-              id: String(child.id || `${taskId}.${cIdx + 1}`),
-              name: child.name || child.title || `Sub-feature ${cIdx + 1}`,
+              id: String(child.id ?? `${taskId}.${cIdx + 1}`),
+              name: (child.name ?? child.title ?? "").toString().trim(),
               frontend: cFe,
               backend: cBe,
               integration: 0,
@@ -144,7 +179,7 @@ function parseModifyResponse(data: any, context?: any, currentModules?: Module[]
 
       return {
         id: taskId,
-        name: task.name || task.title || `Feature ${tIdx + 1}`,
+        name: (task.name ?? task.title ?? "").toString().trim(),
         frontend: fe,
         backend: be,
         integration: 0,
@@ -156,7 +191,7 @@ function parseModifyResponse(data: any, context?: any, currentModules?: Module[]
 
     return {
       id: moduleId,
-      name: mod.name || mod.title || mod.module || `Module ${idx + 1}`,
+      name: (mod.name ?? mod.title ?? mod.module ?? "").toString().trim(),
       expanded: idx === 0,
       tasks,
     };
@@ -212,22 +247,44 @@ export default function FloatingAIAgent({ modules, setModules, apiBase, rawApiRe
     setLoading(true);
 
     try {
-      let currentFeatures: Array<{ name: string; category: string; complexity: string }> = [];
+      type FeaturePayload = { name: string; category: string; complexity: string; subfeatures: Array<{ name: string }> };
+      let currentFeatures: FeaturePayload[] = [];
 
-      if (rawApiResponse?.estimation?.features && Array.isArray(rawApiResponse.estimation.features)) {
-        currentFeatures = rawApiResponse.estimation.features.map((f: any) => ({
-          name: (f.name || "").toString(),
-          category: (f.description || f.category || "Core").toString(),
-          complexity: (f.complexity || "medium").toString(),
-        }));
-      } else {
+      const hasModulesWithTasks = modules.some((m) => m.tasks.length > 0);
+      if (hasModulesWithTasks) {
         currentFeatures = modules.flatMap((m) =>
-          m.tasks.map((t) => ({
-            name: t.name,
-            category: "Core",
-            complexity: "medium",
-          })),
+          m.tasks.map((t) => {
+            const children = t.children || [];
+            const isSingleSelfNamed =
+              children.length === 1 &&
+              (children[0].name || "").trim().toLowerCase() === (t.name || "").trim().toLowerCase();
+            const subfeatures =
+              children.length === 0 || isSingleSelfNamed
+                ? []
+                : children.map((c) => ({ name: c.name }));
+            return {
+              name: t.name,
+              category: "Core",
+              complexity: (t.complexity || "medium").toString(),
+              subfeatures,
+            };
+          }),
         );
+      } else if (rawApiResponse?.estimation?.features && Array.isArray(rawApiResponse.estimation.features)) {
+        currentFeatures = rawApiResponse.estimation.features.map((f: any) => {
+          const fName = (f.name || "").toString().trim();
+          const subfeaturesRaw = f.subfeatures || [];
+          const subfeatures = subfeaturesRaw.map((sf: any) => ({ name: (sf.name || "").toString().trim() })).filter((s: { name: string }) => s.name);
+          const isSingleSelfNamed =
+            subfeatures.length === 1 && (subfeatures[0].name || "").toLowerCase() === fName.toLowerCase();
+          const toSend = subfeatures.length === 0 || isSingleSelfNamed ? [] : subfeatures;
+          return {
+            name: fName,
+            category: (f.description || f.category || "Core").toString(),
+            complexity: (f.complexity || "medium").toString(),
+            subfeatures: toSend,
+          };
+        });
       }
 
       if (currentFeatures.length === 0) {
@@ -250,7 +307,14 @@ export default function FloatingAIAgent({ modules, setModules, apiBase, rawApiRe
 
       const data = await response.json();
 
-      const updatedModules = parseModifyResponse(data, rawApiResponse, modules);
+      let updatedModules = parseModifyResponse(data, rawApiResponse, modules);
+      if (!updatedModules && Array.isArray(data.features) && data.features.length > 0) {
+        updatedModules = parseModifyResponse(
+          { ...data, total_hours: typeof data.total_hours === "number" ? data.total_hours : 0 },
+          rawApiResponse,
+          modules,
+        );
+      }
       if (updatedModules && updatedModules.length > 0) {
         setModules(updatedModules);
       }
@@ -266,16 +330,17 @@ export default function FloatingAIAgent({ modules, setModules, apiBase, rawApiRe
           parts.push(`Range: ${data.min_hours}–${data.max_hours} hrs`);
         }
       }
-      const assistantContent =
-        parts.length > 0 ? parts.join("\n\n") : "Estimation updated. Check the table for details.";
+      const assistantContent = parts.length > 0 ? parts.join("\n\n") : "";
 
-      const assistantMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: assistantContent,
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, assistantMsg]);
+      if (assistantContent !== "") {
+        const assistantMsg: Message = {
+          id: (Date.now() + 1).toString(),
+          role: "assistant",
+          content: assistantContent,
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, assistantMsg]);
+      }
 
       toast({ title: "Estimation updated!" });
     } catch (err: any) {

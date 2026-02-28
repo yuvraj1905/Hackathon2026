@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export default function LoginPage() {
     const [email, setEmail] = useState("");
@@ -99,6 +100,7 @@ export default function LoginPage() {
 
     return (
         <div className="relative min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top,_hsl(230_94%_68%_/_0.18),_transparent_55%),radial-gradient(circle_at_bottom,_hsl(270_88%_68%_/_0.14),_transparent_55%)]">
+            <ThemeToggle />
             {/* Soft grid / glow background */}
             <div className="pointer-events-none absolute inset-0 opacity-40 [background-image:radial-gradient(circle_at_1px_1px,hsl(var(--border)_/_0.35)_1px,transparent_0)] [background-size:32px_32px]" />
 

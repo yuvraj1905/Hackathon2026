@@ -1,11 +1,3 @@
-import os
-
-# WeasyPrint on macOS: dynamic linker must find Homebrew's Pango/Cairo (see first_steps.html#troubleshooting)
-if os.path.exists("/opt/homebrew/lib"):
-    current = os.environ.get("DYLD_FALLBACK_LIBRARY_PATH", "")
-    brew = "/opt/homebrew/lib:/opt/homebrew/opt/pango/lib:/opt/homebrew/opt/cairo/lib:/opt/homebrew/opt/gdk-pixbuf/lib"
-    os.environ["DYLD_FALLBACK_LIBRARY_PATH"] = brew + (":" + current if current else "")
-
 from fastapi import FastAPI, HTTPException, Request, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -14,12 +6,11 @@ from io import BytesIO
 import asyncio
 import json
 import logging
-import uuid as uuid_module
 from pathlib import Path
 from typing import Any, Optional
 from dotenv import load_dotenv
 
-from app.models.project_models import ProjectRequest, FinalPipelineResponse, ProjectListItem
+from app.models.project_models import ProjectRequest, FinalPipelineResponse
 from app.models.modification_models import ModificationRequest, ModificationResponse
 from app.models.user_models import UserLogin, TokenResponse, UserResponse, UserInDB
 from app.orchestrator.project_pipeline import ProjectPipeline
@@ -64,36 +55,6 @@ def _get_google_docs_service():
         from app.services.google_docs_service import GoogleDocsService
         _google_docs_service = GoogleDocsService()
     return _google_docs_service
-
-
-async def _get_estimation_data(project_id: str) -> Optional[dict]:
-    """
-    Resolve estimation data by project_id: in-memory cache first, then DB (estimate_data).
-    Returns the full pipeline result dict for proposal rendering, or None if not found.
-    """
-    cached = _estimation_cache.get(project_id)
-    if cached is not None:
-        return cached
-    try:
-        pid = uuid_module.UUID(project_id)
-    except (ValueError, TypeError):
-        return None
-    try:
-        async with db.pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT estimate_data FROM projects WHERE id = $1",
-                pid,
-            )
-            if row and row.get("estimate_data") is not None:
-                data = row["estimate_data"]
-                if isinstance(data, dict):
-                    return data
-                if isinstance(data, str):
-                    return json.loads(data)
-                return dict(data) if data else None
-    except Exception as e:
-        logger.warning("Failed to load estimate_data for project_id=%s: %s", project_id, e)
-    return None
 
 
 pipeline: ProjectPipeline = None
@@ -430,7 +391,6 @@ async def estimate_project(
             "extracted_text": extracted_text or "",
         })
 
-        project_id = None
         try:
             # Ensure build_options is always a list for PostgreSQL TEXT[] (asyncpg accepts list)
             build_options_for_db = list(build_options) if build_options else []
@@ -470,40 +430,21 @@ async def estimate_project(
                 )
         except Exception as e:
             logger.warning("Failed to store project data: %s", str(e))
-        # Cache result for proposal PDF/Doc (by project_id so same-session and after refresh work)
-        if project_id is not None:
-            proj_id_str = str(project_id)
-            if len(_estimation_cache) >= _MAX_CACHE_SIZE:
-                oldest = next(iter(_estimation_cache))
-                del _estimation_cache[oldest]
-            _estimation_cache[proj_id_str] = result
-            logger.info("Cached estimation: project_id=%s (cache size=%d)", proj_id_str, len(_estimation_cache))
-
-        # Persist estimate_data so PDF/Doc work after refresh
-        if project_id is not None:
-            try:
-                result_with_project = {**result, "project_id": str(project_id)}
-                async with db.pool.acquire() as conn:
-                    await conn.execute(
-                        "UPDATE projects SET estimate_data = $1::jsonb WHERE id = $2",
-                        json.dumps(result_with_project),
-                        project_id,
-                    )
-                logger.info("Saved estimate_data for project_id=%s", project_id)
-            except Exception as e:
-                logger.warning("Failed to save estimate_data for project %s: %s", project_id, e)
+        # Cache result for proposal PDF generation
+        request_id = result["request_id"]
+        if len(_estimation_cache) >= _MAX_CACHE_SIZE:
+            oldest = next(iter(_estimation_cache))
+            del _estimation_cache[oldest]
+        _estimation_cache[request_id] = result
+        logger.info("Cached estimation: request_id=%s (cache size=%d)", request_id, len(_estimation_cache))
 
         logger.info(
-            "Estimation completed: project_id=%s mode=%s",
-            project_id,
+            "Estimation completed: %s mode=%s",
+            request_id,
             input_mode
         )
 
-        # Include project_id in response so frontend can use it for PDF/Doc URLs
-        out = {**result}
-        if project_id is not None:
-            out["project_id"] = str(project_id)
-        return FinalPipelineResponse(**out)
+        return FinalPipelineResponse(**result)
 
     except HTTPException:
         raise
@@ -513,72 +454,6 @@ async def estimate_project(
     except Exception as e:
         logger.error(f"Pipeline error: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal estimation error")
-
-
-@app.get("/projects", response_model=list[ProjectListItem])
-async def list_projects(
-    current_user: UserInDB = Depends(get_current_user),
-) -> list[ProjectListItem]:
-    """
-    List all projects for the authenticated user (for Proposals tab).
-
-    Returns projects ordered by created_at descending. Each item includes id, title,
-    domain, totalHours, and createdAt so the frontend can display and link to
-    proposal PDF/Doc.
-    """
-    try:
-        async with db.pool.acquire() as conn:
-            rows = await conn.fetch(
-                """
-                SELECT id, additional_details, estimate_data, created_at
-                FROM projects
-                WHERE user_id = $1
-                ORDER BY created_at DESC
-                """,
-                current_user.id,
-            )
-        out: list[ProjectListItem] = []
-        for row in rows:
-            pid = str(row["id"])
-            created_at = row["created_at"]
-            created_iso = created_at.isoformat() if created_at else ""
-            est = row.get("estimate_data")
-            if isinstance(est, str):
-                try:
-                    est = json.loads(est) if est else None
-                except json.JSONDecodeError:
-                    est = None
-            if not isinstance(est, dict):
-                est = None
-            additional = (row.get("additional_details") or "")[:200]
-            domain_raw = "unknown"
-            total_hrs = 0.0
-            title = "New proposal"
-            if est:
-                dd = est.get("domain_detection") or {}
-                domain_raw = (dd.get("detected_domain") or "unknown").replace("_", " ").strip()
-                meta = est.get("metadata") or {}
-                title = (meta.get("project_title") or "").strip() or (additional[:80] + ("..." if len(additional) > 80 else "")) or "New proposal"
-                try:
-                    total_hrs = float((est.get("estimation") or {}).get("total_hours") or 0)
-                except (TypeError, ValueError):
-                    total_hrs = 0.0
-            else:
-                title = (additional[:80] + ("..." if len(additional) > 80 else "")) if additional else "New proposal"
-            out.append(
-                ProjectListItem(
-                    id=pid,
-                    request_id=pid,
-                    title=title or "New proposal",
-                    domain=domain_raw or "unknown",
-                    totalHours=max(0.0, total_hrs),
-                    createdAt=created_iso,
-                )
-            )
-        return out
-    except Exception as e:
-        logger.warning("Failed to list projects for user %s: %s", current_user.id, e)
-        raise HTTPException(status_code=500, detail="Failed to load projects")
 
 
 @app.post("/modify", response_model=ModificationResponse)
@@ -595,14 +470,14 @@ async def modify_scope(request: ModificationRequest) -> ModificationResponse:
     try:
         logger.info(f"Processing modification: {request.instruction[:100]}...")
         
-        current_features_list = [
-            {
-                "name": f.name,
-                "category": f.category,
-                "complexity": f.complexity
-            }
-            for f in request.current_features
-        ]
+        current_features_list = []
+        for f in request.current_features:
+            entry = {"name": f.name, "category": f.category, "complexity": f.complexity}
+            if f.subfeatures and len(f.subfeatures) > 0:
+                entry["subfeatures"] = [{"name": sf.name} for sf in f.subfeatures]
+            else:
+                entry["subfeatures"] = []
+            current_features_list.append(entry)
         
         modification_result = await modification_agent.execute({
             "current_features": current_features_list,
@@ -623,11 +498,19 @@ async def modify_scope(request: ModificationRequest) -> ModificationResponse:
         
         formatted_features = []
         for feature in estimated_features:
+            total_hours = feature.get("total_hours", 0.0)
+            subfeatures_raw = feature.get("subfeatures", [])
+            subfeatures = [
+                {"name": sf.get("name", ""), "effort": sf.get("effort", 0.0)}
+                for sf in subfeatures_raw
+            ]
             formatted_features.append({
                 "name": feature.get("name", ""),
                 "description": feature.get("category", "Core"),
                 "complexity": feature.get("complexity", "Medium").lower(),
-                "estimated_hours": feature.get("final_hours", 0.0),
+                "estimated_hours": total_hours,
+                "total_hours": total_hours,
+                "subfeatures": subfeatures,
                 "dependencies": [],
                 "confidence_score": 0.75
             })
@@ -731,28 +614,22 @@ def _build_proposal_context(data: dict[str, Any]) -> dict[str, Any]:
             "confidence_score": f.get("confidence_score", 0),
         })
 
-    # Prefer proposal assumptions (LLM-generated) over estimation assumptions (hardcoded fallback)
-    assumptions = proposal.get("assumptions", []) or estimation.get("assumptions", [])
-
     return {
         "request_id": data.get("request_id", "N/A"),
         "project_title": f"{detected_domain} Platform",
         "detected_domain": detected_domain,
-        "abstract": proposal.get("abstract", ""),
         "executive_summary": proposal.get("executive_summary", ""),
         "proposed_solution": proposal.get("proposed_solution", ""),
         "scope_of_work": proposal.get("scope_of_work", ""),
         "deliverables": proposal.get("deliverables", []),
-        "project_timeline": proposal.get("project_timeline", []),
         "risks": proposal.get("risks", []),
         "mitigation_strategies": proposal.get("mitigation_strategies", []),
-        "assumptions": assumptions,
-        "client_dependencies": proposal.get("client_dependencies", []),
         "features": features,
         "total_hours": estimation.get("total_hours", 0),
         "min_hours": estimation.get("min_hours", 0),
         "max_hours": estimation.get("max_hours", 0),
         "confidence_score": estimation.get("confidence_score", 0),
+        "assumptions": estimation.get("assumptions", []),
         "tech_frontend": _flatten_tech_layer(tech_stack.get("frontend")),
         "tech_backend": _flatten_tech_layer(tech_stack.get("backend")),
         "tech_database": _flatten_tech_layer(tech_stack.get("database")),
@@ -768,30 +645,30 @@ def _build_proposal_context(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-@app.get("/proposal/pdf/{project_id}")
-async def get_proposal_pdf(project_id: str) -> StreamingResponse:
+@app.get("/proposal/pdf/{request_id}")
+async def get_proposal_pdf(request_id: str) -> StreamingResponse:
     """
     Generate and stream a branded PDF proposal for a previously run estimation.
 
     Args:
-        project_id: The project UUID returned in the /estimate response (use for PDF/Doc links).
+        request_id: The UUID returned in the /estimate response.
 
     Returns:
         Streaming PDF response suitable for inline browser display.
 
     Raises:
-        404 if the estimation is not found (cache or DB). Re-run /estimate to regenerate.
+        404 if the estimation is not found in the cache (re-run /estimate first).
     """
-    cached = await _get_estimation_data(project_id)
+    cached = _estimation_cache.get(request_id)
     if cached is None:
-        logger.warning("Proposal PDF requested for unknown project_id=%s", project_id)
+        logger.warning("Proposal PDF requested for unknown request_id=%s", request_id)
         raise HTTPException(
             status_code=404,
-            detail=f"Estimation for project '{project_id}' not found. Re-run the estimation to regenerate.",
+            detail=f"Estimation '{request_id}' not found. Re-run the estimation to regenerate.",
         )
 
     try:
-        logger.info("Generating proposal PDF for project_id=%s", project_id)
+        logger.info("Generating proposal PDF for request_id=%s", request_id)
         context = _build_proposal_context(cached)
         html = render_proposal(context)
         pdf_bytes = pdf_service.generate_pdf(html)
@@ -800,12 +677,12 @@ async def get_proposal_pdf(project_id: str) -> StreamingResponse:
         logger.error("PDF generation unavailable: %s", exc)
         raise HTTPException(status_code=503, detail=str(exc))
     except Exception:
-        logger.exception("Proposal PDF generation failed for project_id=%s", project_id)
+        logger.exception("Proposal PDF generation failed for request_id=%s", request_id)
         raise HTTPException(status_code=500, detail="Failed to generate proposal PDF")
 
     logger.info(
-        "Serving proposal PDF: project_id=%s size=%d bytes",
-        project_id,
+        "Serving proposal PDF: request_id=%s size=%d bytes",
+        request_id,
         len(pdf_bytes),
     )
 
@@ -818,23 +695,23 @@ async def get_proposal_pdf(project_id: str) -> StreamingResponse:
     )
 
 
-@app.get("/proposal/html/{project_id}")
-async def get_proposal_html(project_id: str) -> dict:
+@app.get("/proposal/html/{request_id}")
+async def get_proposal_html(request_id: str) -> dict:
     """
     Return rendered proposal HTML and title for client-side Google Docs export.
 
     Args:
-        project_id: The project UUID returned by /estimate (use for PDF/Doc links).
+        request_id: The UUID returned by /estimate.
 
     Returns:
         JSON: ``{"html": "<rendered html>", "title": "Project — Proposal"}``
     """
-    cached = await _get_estimation_data(project_id)
+    cached = _estimation_cache.get(request_id)
     if cached is None:
-        logger.warning("Proposal HTML requested for unknown project_id=%s", project_id)
+        logger.warning("Proposal HTML requested for unknown request_id=%s", request_id)
         raise HTTPException(
             status_code=404,
-            detail=f"Estimation for project '{project_id}' not found. Re-run the estimation to regenerate.",
+            detail=f"Estimation '{request_id}' not found. Re-run the estimation to regenerate.",
         )
 
     try:
@@ -842,39 +719,39 @@ async def get_proposal_html(project_id: str) -> dict:
         html = render_proposal(context)
         title = f"{context['project_title']} — Proposal"
     except Exception:
-        logger.exception("Proposal HTML generation failed for project_id=%s", project_id)
+        logger.exception("Proposal HTML generation failed for request_id=%s", request_id)
         raise HTTPException(status_code=500, detail="Failed to generate proposal HTML")
 
-    logger.info("Serving proposal HTML: project_id=%s", project_id)
+    logger.info("Serving proposal HTML: request_id=%s", request_id)
     return {"html": html, "title": title}
 
 
-@app.get("/proposal/google-doc/{project_id}")
+@app.get("/proposal/google-doc/{request_id}")
 async def get_proposal_google_doc(
-    project_id: str,
+    request_id: str,
     email: Optional[str] = Query(default=None, description="Grant this email writer access to the doc"),
 ) -> dict:
     """
     Generate a branded proposal as a native Google Doc and return its edit URL.
 
     Args:
-        project_id: The project UUID returned by /estimate (use for PDF/Doc links).
-        email:      Optional query param — if provided, the doc is shared with this address.
+        request_id: The UUID returned by /estimate.
+        email:       Optional query param — if provided, the doc is shared with this address.
 
     Returns:
         JSON: ``{"doc_url": "https://docs.google.com/document/d/.../edit"}``
 
     Raises:
-        404: estimation not found (cache or DB); re-run /estimate first.
+        404: estimation not in cache (re-run /estimate first).
         503: service account credentials missing or invalid.
         502: Google API returned an unexpected error.
     """
-    cached = await _get_estimation_data(project_id)
+    cached = _estimation_cache.get(request_id)
     if cached is None:
-        logger.warning("Google Doc requested for unknown project_id=%s", project_id)
+        logger.warning("Google Doc requested for unknown request_id=%s", request_id)
         raise HTTPException(
             status_code=404,
-            detail=f"Estimation for project '{project_id}' not found. Re-run the estimation to regenerate.",
+            detail=f"Estimation '{request_id}' not found. Re-run the estimation to regenerate.",
         )
 
     # Resolve share email: use provided value, fall back to configured default
@@ -897,18 +774,18 @@ async def get_proposal_google_doc(
         )
     except Exception as exc:
         logger.warning(
-            "Google Docs export failed for project_id=%s (%s: %s) — falling back to PDF",
-            project_id,
+            "Google Docs export failed for request_id=%s (%s: %s) — falling back to PDF",
+            request_id,
             type(exc).__name__,
             exc,
         )
         return {
-            "doc_url": f"/proposal/pdf/{project_id}",
+            "doc_url": f"/proposal/pdf/{request_id}",
             "fallback": True,
             "message": "Google Docs unavailable — opening as PDF instead.",
         }
 
-    logger.info("Google Doc ready: project_id=%s url=%s", project_id, doc_url)
+    logger.info("Google Doc ready: request_id=%s url=%s", request_id, doc_url)
     return {"doc_url": doc_url}
 
 
