@@ -21,3 +21,4 @@ dist/
 build/
 *.egg-info/
 .cursor/rules/architecture-and-api-standards.mdc
+app/credentials/service-account.json
