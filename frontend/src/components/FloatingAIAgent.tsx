@@ -250,6 +250,20 @@ export default function FloatingAIAgent({ modules, setModules, onModifyApplied, 
       type FeaturePayload = { name: string; category: string; complexity: string; subfeatures: Array<{ name: string }> };
       let currentFeatures: FeaturePayload[] = [];
 
+      const estimationFeatures = rawApiResponse?.estimation?.features && Array.isArray(rawApiResponse.estimation.features)
+        ? rawApiResponse.estimation.features
+        : [];
+      const richSubfeaturesByFeatureName: Record<string, Array<{ name: string }>> = {};
+      for (const f of estimationFeatures) {
+        const fName = (f.name || "").toString().trim();
+        if (!fName) continue;
+        const subfeaturesRaw = f.subfeatures || [];
+        const list = subfeaturesRaw.map((sf: any) => ({ name: (sf.name || "").toString().trim() })).filter((s: { name: string }) => s.name);
+        const isSingleSelfNamed = list.length === 1 && (list[0].name || "").toLowerCase() === fName.toLowerCase();
+        const toStore = list.length === 0 || isSingleSelfNamed ? [] : list;
+        if (toStore.length > 0) richSubfeaturesByFeatureName[fName.toLowerCase()] = toStore;
+      }
+
       const hasModulesWithTasks = modules.some((m) => m.tasks.length > 0);
       if (hasModulesWithTasks) {
         currentFeatures = modules.flatMap((m) =>
@@ -258,10 +272,12 @@ export default function FloatingAIAgent({ modules, setModules, onModifyApplied, 
             const isSingleSelfNamed =
               children.length === 1 &&
               (children[0].name || "").trim().toLowerCase() === (t.name || "").trim().toLowerCase();
-            const subfeatures =
+            let subfeatures =
               children.length === 0 || isSingleSelfNamed
                 ? []
                 : children.map((c) => ({ name: c.name }));
+            const rich = richSubfeaturesByFeatureName[(t.name || "").trim().toLowerCase()];
+            if (rich && rich.length > subfeatures.length) subfeatures = rich;
             return {
               name: t.name,
               category: "Core",
@@ -270,8 +286,8 @@ export default function FloatingAIAgent({ modules, setModules, onModifyApplied, 
             };
           }),
         );
-      } else if (rawApiResponse?.estimation?.features && Array.isArray(rawApiResponse.estimation.features)) {
-        currentFeatures = rawApiResponse.estimation.features.map((f: any) => {
+      } else if (estimationFeatures.length > 0) {
+        currentFeatures = estimationFeatures.map((f: any) => {
           const fName = (f.name || "").toString().trim();
           const subfeaturesRaw = f.subfeatures || [];
           const subfeatures = subfeaturesRaw.map((sf: any) => ({ name: (sf.name || "").toString().trim() })).filter((s: { name: string }) => s.name);
