@@ -582,25 +582,37 @@ async def list_projects(
         raise HTTPException(status_code=500, detail="Failed to load projects")
 
 
+def _normalize_subfeature_typos(text: str) -> str:
+    """Normalize common typos so 'subfeatire' / 'subfeatur' etc. are treated as 'subfeature'."""
+    if not text:
+        return text
+    t = text.lower()
+    for typo in ("subfeatire", "subfeatur", "subfature", "subfeatur e", "subfeatire "):
+        t = t.replace(typo, "subfeature")
+    return t
+
+
 def _parse_add_subfeature_intent(instruction: str):
     """
     Parse 'add X as a subfeature in Y' / 'add X subfeature in Y' / 'X as a subfeature in admin management'.
-    Returns (subfeature_name, parent_feature_name) or (None, None).
+    Handles typos like 'subfeatire'. Returns (subfeature_name, parent_feature_name) or (None, None).
     """
-    if not instruction or "subfeature" not in instruction.strip().lower():
+    if not instruction:
         return None, None
     instr = instruction.strip()
-    instr_lower = instr.lower()
-    # "add X as a subfeature in Y" or "add X subfeature in Y" or "X as a subfeature in Y"
+    instr_normalized = _normalize_subfeature_typos(instr)
+    if "subfeature" not in instr_normalized:
+        return None, None
+    # Run regex on normalized text so "subfeatire" is matched as "subfeature"
     for pattern in [
         r"add\s+(.+?)\s+as\s+(?:a\s+)?subfeature\s+in\s+(.+)",
         r"add\s+(.+?)\s+subfeature\s+in\s+(.+)",
         r"(.+?)\s+as\s+(?:a\s+)?subfeature\s+in\s+(.+)",
     ]:
-        m = re.search(pattern, instr_lower, re.I | re.DOTALL)
+        m = re.search(pattern, instr_normalized, re.I | re.DOTALL)
         if m:
-            sub_name = instr[m.start(1):m.end(1)].strip()
-            parent_name = instr[m.start(2):m.end(2)].strip()
+            sub_name = m.group(1).strip()
+            parent_name = m.group(2).strip()
             if sub_name and parent_name and len(sub_name) < 120:
                 return sub_name.strip().title(), parent_name.strip()
     return None, None
@@ -627,14 +639,112 @@ def _apply_deterministic_add_subfeature(features: list, instruction: str) -> lis
                 logger.info("Deterministic add subfeature: %r under %r", sub_name, f.get("name"))
                 applied = True
             break
-    # If we added the subfeature, drop any mistaken top-level feature the LLM may have added
-    # (e.g. "User Info As A Subfeature In Admin Management" with 0 subfeatures)
-    if applied:
+    if applied and sub_name:
+        sub_lower = sub_name.lower()
+
         def is_mistaken_subfeature_as_feature(feat: dict) -> bool:
             name = (feat.get("name") or "").strip().lower()
+            name_norm = _normalize_subfeature_typos(name)
             subs = feat.get("subfeatures") or []
-            return ("subfeature" in name or " as a subfeature " in name) and (not subs or len(subs) == 0)
+            has_no_real_subs = not subs or (
+                len(subs) == 1 and (subs[0].get("name") or "").strip().lower() == name
+            )
+            # Name contains "subfeature" (e.g. "user info subfeature in admin management")
+            name_looks_like_subfeature_phrase = (
+                "subfeature" in name_norm or " as a subfeature " in name_norm or " subfeature " in name_norm
+            )
+            # Or "X in Y" where Y is the parent (e.g. "user info in admin management")
+            name_looks_like_subfeature_phrase = name_looks_like_subfeature_phrase or (
+                " in " in name and parent_lower in name and sub_lower in name
+            )
+            if name_looks_like_subfeature_phrase and has_no_real_subs:
+                return True
+            # Standalone feature with same name as the sub we just added (e.g. top-level "User Info")
+            if name == sub_lower and has_no_real_subs:
+                return True
+            return False
+
         features[:] = [f for f in features if not (isinstance(f, dict) and is_mistaken_subfeature_as_feature(f))]
+    return features
+
+
+def _merge_preserved_subfeatures(
+    current_features: list, updated_features: list
+) -> list:
+    """
+    When the modification agent / LLM returns simplified features (e.g. one subfeature
+    per feature), merge back the original subfeatures from current_features for any
+    feature that was not explicitly modified (same name, updated has 0 or 1 self-named sub).
+    """
+    if not current_features or not updated_features:
+        return updated_features
+    current_by_name = {}
+    for f in current_features:
+        if isinstance(f, dict):
+            name = (f.get("name") or "").strip()
+            if name:
+                current_by_name[name.lower()] = f
+    result = []
+    for feat in updated_features:
+        if not isinstance(feat, dict):
+            result.append(feat)
+            continue
+        name = (feat.get("name") or "").strip()
+        subs = feat.get("subfeatures") or []
+        current = current_by_name.get(name.lower()) if name else None
+        if current and isinstance(current, dict):
+            current_subs = current.get("subfeatures") or []
+            # Updated has 0 or only 1 subfeature that equals feature name => likely LLM simplified
+            has_real_subfeatures = len(subs) > 1 or (
+                len(subs) == 1
+                and (subs[0].get("name") or "").strip().lower() != name.lower()
+            )
+            current_has_real = len(current_subs) > 1 or (
+                len(current_subs) == 1
+                and (current_subs[0].get("name") or "").strip().lower() != name.lower()
+            )
+            if current_has_real and not has_real_subfeatures:
+                feat = dict(feat)
+                feat["subfeatures"] = list(current_subs)
+        result.append(feat)
+    return result
+
+
+def _parse_remove_intent(instruction: str):
+    """Parse 'remove X' / 'remove the X' / 'delete X'. Returns the name to remove (lowercase) or None."""
+    if not instruction or not isinstance(instruction, str):
+        return None
+    instr = instruction.strip().lower()
+    for prefix in ("remove the ", "remove ", "delete the ", "delete "):
+        if instr.startswith(prefix):
+            name = instr[len(prefix):].strip().split(",")[0].split(".")[0].strip()
+            if name and len(name) < 100:
+                return name
+    return None
+
+
+def _apply_deterministic_remove(features: list, instruction: str) -> list:
+    """When user says 'remove X', remove any feature named X or containing X, and any subfeature named X."""
+    target = _parse_remove_intent(instruction)
+    if not target or not isinstance(features, list):
+        return features
+    target_lower = target.lower()
+    # 1. Remove matching subfeatures from their parents
+    for f in features:
+        if not isinstance(f, dict):
+            continue
+        subs = f.get("subfeatures") or []
+        if not subs:
+            continue
+        new_subs = [s for s in subs if isinstance(s, dict) and (s.get("name") or "").strip().lower() != target_lower and target_lower not in (s.get("name") or "").strip().lower()]
+        if len(new_subs) != len(subs):
+            f["subfeatures"] = new_subs
+            logger.info("Deterministic remove: subfeature %r from %r", target, f.get("name"))
+    # 2. Remove any top-level feature whose name matches or contains target (e.g. "User Info Subfeature in Admin Management")
+    features[:] = [
+        f for f in features
+        if not (isinstance(f, dict) and ((f.get("name") or "").strip().lower() == target_lower or target_lower in (f.get("name") or "").strip().lower()))
+    ]
     return features
 
 
@@ -712,6 +822,8 @@ async def modify_scope(request: ModificationRequest) -> ModificationResponse:
         updated_features = modification_result.get("features", [])
         updated_features = _apply_deterministic_add_subfeature(updated_features, request.instruction)
         updated_features = _apply_deterministic_add_feature(updated_features, request.instruction)
+        updated_features = _apply_deterministic_remove(updated_features, request.instruction)
+        updated_features = _merge_preserved_subfeatures(current_features_list, updated_features)
         
         estimation_result = await estimation_agent.execute({
             "features": updated_features,
