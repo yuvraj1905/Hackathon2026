@@ -111,12 +111,13 @@ export function appendProposalToHistory(
   if (typeof window === "undefined" || !raw) return;
 
   try {
+    // Prefer project_id for links (PDF/Doc); fallback to request_id for legacy entries
+    const projectId = raw.project_id != null ? String(raw.project_id) : null;
     const id: string =
+      projectId ||
       (raw.request_id && String(raw.request_id)) ||
-      (typeof crypto !== "undefined" &&
-        (crypto as any).randomUUID
+      (typeof crypto !== "undefined" && (crypto as any).randomUUID
         ? (crypto as any).randomUUID()
-        (crypto as any).randomUUID()
         : String(Date.now()));
 
     const domainRaw =
@@ -134,9 +135,12 @@ export function appendProposalToHistory(
 
     const createdAt = new Date().toISOString();
 
+    // request_id is used for PDF/Doc URLs; use project_id when available so links work after refresh
+    const linkId = projectId || raw.request_id || "";
+
     const entry: StoredProposalSummary = {
       id,
-      request_id: raw.request_id || "",
+      request_id: linkId,
       title: derivedTitle,
       domain,
       totalHours,

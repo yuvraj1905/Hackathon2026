@@ -117,7 +117,7 @@ class PlanningResult(BaseModel):
 class FinalPipelineResponse(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
     
-    request_id: str = Field(..., description="Unique request identifier")
+    project_id: Optional[str] = Field(None, description="Project UUID; use this for proposal PDF/Doc URLs")
     domain_detection: DomainDetectionResult = Field(..., description="Domain detection results")
     estimation: EstimationResult = Field(..., description="Estimation breakdown")
     tech_stack: TechStackRecommendation = Field(..., description="Recommended tech stack")
