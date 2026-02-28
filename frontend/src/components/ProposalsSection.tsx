@@ -2,14 +2,14 @@
 
 import { useState } from "react";
 import {
-  FileText,
-  Target,
-  CheckCircle,
-  ShieldAlert,
-  AlertCircle,
-  Clock,
-  Download,
-  ExternalLink,
+    FileText,
+    Target,
+    CheckCircle,
+    ShieldAlert,
+    AlertCircle,
+    Clock,
+    Download,
+    ExternalLink,
 } from "lucide-react";
 import Link from "next/link";
 import { ProposalData, fmtNum } from "@/lib/utils";
@@ -18,8 +18,8 @@ import { useToast } from "@/hooks/use-toast";
 import { requestGoogleToken, uploadHtmlAsGoogleDoc } from "@/lib/googleDrive";
 
 const API_BASE =
-  (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_API_BASE) ||
-  "http://localhost:8000";
+    (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_API_BASE) ||
+    "http://localhost:8000";
 import type { StoredProposalSummary } from "@/lib/estimateApi";
 
 interface ProposalsSectionProps {
@@ -33,54 +33,60 @@ export function ProposalsSection({
     summaryData,
     proposals,
 }: ProposalsSectionProps) {
-  const [gdocLoading, setGdocLoading] = useState(false);
-  const { toast } = useToast();
+    const [gdocLoading, setGdocLoading] = useState(false);
+    const { toast } = useToast();
 
-  const handleOpenInGoogleDocs = async ({requestId} : {requestId: string}) => {
-    if (!requestId) return;
+    const handleOpenInGoogleDocs = async ({
+        requestId,
+    }: {
+        requestId: string;
+    }) => {
+        if (!requestId) return;
 
-    // Open a blank tab synchronously (in click context) to avoid popup blocker
-    const newTab = window.open("about:blank", "_blank");
+        // Open a blank tab synchronously (in click context) to avoid popup blocker
+        const newTab = window.open("about:blank", "_blank");
 
-    setGdocLoading(true);
-    try {
-      // 1. Fetch rendered HTML from backend
-      const res = await fetch(`${API_BASE}/proposal/html/${requestId}`);
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({ detail: `Server error ${res.status}` }));
-        throw new Error(body.detail || `Server error ${res.status}`);
-      }
-      const { html, title } = await res.json();
+        setGdocLoading(true);
+        try {
+            // 1. Fetch rendered HTML from backend
+            const res = await fetch(`${API_BASE}/proposal/html/${requestId}`);
+            if (!res.ok) {
+                const body = await res
+                    .json()
+                    .catch(() => ({ detail: `Server error ${res.status}` }));
+                throw new Error(body.detail || `Server error ${res.status}`);
+            }
+            const { html, title } = await res.json();
 
-      // 2. Get OAuth token via Google Identity Services popup
-      const token = await requestGoogleToken();
+            // 2. Get OAuth token via Google Identity Services popup
+            const token = await requestGoogleToken();
 
-      // 3. Upload HTML as a Google Doc in the user's own Drive
-      const docUrl = await uploadHtmlAsGoogleDoc(html, title, token);
+            // 3. Upload HTML as a Google Doc in the user's own Drive
+            const docUrl = await uploadHtmlAsGoogleDoc(html, title, token);
 
-      // 4. Navigate the pre-opened tab to the doc
-      if (newTab) {
-        newTab.location.href = docUrl;
-      } else {
-        window.open(docUrl, "_blank");
-      }
+            // 4. Navigate the pre-opened tab to the doc
+            if (newTab) {
+                newTab.location.href = docUrl;
+            } else {
+                window.open(docUrl, "_blank");
+            }
 
-      toast({
-        title: "Google Doc created",
-        description: "Proposal opened in your Google Drive.",
-      });
-    } catch (err: any) {
-      // Close the blank tab on error
-      newTab?.close();
-      toast({
-        title: "Google Docs export failed",
-        description: err?.message || "Could not create Google Doc.",
-        variant: "destructive",
-      });
-    } finally {
-      setGdocLoading(false);
-    }
-  };
+            toast({
+                title: "Google Doc created",
+                description: "Proposal opened in your Google Drive.",
+            });
+        } catch (err: any) {
+            // Close the blank tab on error
+            newTab?.close();
+            toast({
+                title: "Google Docs export failed",
+                description: err?.message || "Could not create Google Doc.",
+                variant: "destructive",
+            });
+        } finally {
+            setGdocLoading(false);
+        }
+    };
 
     if (!proposals.length) {
         return (
@@ -157,39 +163,42 @@ export function ProposalsSection({
                                 </div>
                             </div>
 
-                            <Link href="/proposals/new">
-                                <Button variant="outline" size="sm" className="shrink-0">
-                                    Generate Proposal
-                                </Button>
-                            </Link>
-
                             {/* ── Action buttons ───────────────────────────────────────── */}
-        <div className="ml-auto flex shrink-0 items-center gap-2">
-          <Button
-            size="sm"
-            disabled={!requestId}
-            onClick={() => window.open(`/proposal/pdf/${requestId}`, "_blank")}
-            className="rounded-xl text-xs font-medium"
-          >
-            <Download className="mr-1.5 h-3.5 w-3.5" />
-            Download Proposal
-          </Button>
+                            <div className="ml-auto flex shrink-0 items-center gap-2">
+                                <Button
+                                    size="sm"
+                                    disabled={!requestId}
+                                    onClick={() =>
+                                        window.open(
+                                            `/proposal/pdf/${requestId}`,
+                                            "_blank",
+                                        )
+                                    }
+                                    className="rounded-xl text-xs font-medium"
+                                >
+                                    <Download className="mr-1.5 h-3.5 w-3.5" />
+                                    Download Proposal
+                                </Button>
 
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={!requestId || gdocLoading}
-            onClick={()=>handleOpenInGoogleDocs({requestId})}
-            className="rounded-xl text-xs font-medium"
-          >
-            {gdocLoading ? (
-              <span className="mr-1.5 inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-            ) : (
-              <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
-            )}
-            {gdocLoading ? "Generating…" : "Open in Google Docs"}
-          </Button>
-        </div>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={!requestId || gdocLoading}
+                                    onClick={() =>
+                                        handleOpenInGoogleDocs({ requestId })
+                                    }
+                                    className="rounded-xl text-xs font-medium"
+                                >
+                                    {gdocLoading ? (
+                                        <span className="mr-1.5 inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                                    ) : (
+                                        <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                                    )}
+                                    {gdocLoading
+                                        ? "Generating…"
+                                        : "Open in Google Docs"}
+                                </Button>
+                            </div>
                         </div>
                     );
                 })}
