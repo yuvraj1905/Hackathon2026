@@ -1,6 +1,6 @@
 "use client";
 
-import { motion, useScroll, useTransform } from "framer-motion";
+import { motion } from "framer-motion";
 import Link from "next/link";
 import { ArrowRight, Upload, Brain, Edit3, Download, Zap, Clock, BarChart3, Layers, Users, FileText, CheckCircle2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";

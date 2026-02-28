@@ -1,6 +1,9 @@
-const API_BASE =
-  (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_API_BASE) ||
-  "http://localhost:8000";
+function getApiBase(): string {
+  if (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_API_BASE) {
+    return process.env.NEXT_PUBLIC_API_BASE;
+  }
+  return "http://127.0.0.1:8000";
+}
 
 function getAuthToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -22,6 +25,7 @@ export async function fetchEstimate(payload: {
     throw new Error("Authentication required. Please log in again.");
   }
 
+  const API_BASE = getApiBase();
   let response: Response;
 
   if (payload.file) {
@@ -79,6 +83,7 @@ export async function fetchEstimate(payload: {
 
 export interface StoredProposalSummary {
   id: string;
+  request_id: string;
   title: string;
   domain: string;
   totalHours: number;
@@ -86,6 +91,18 @@ export interface StoredProposalSummary {
 }
 
 export const PROPOSALS_HISTORY_KEY = "proposalsHistory";
+
+let lastEstimateRaw: any = null;
+
+export function setLastEstimateRaw(raw: any): void {
+  lastEstimateRaw = raw ?? null;
+}
+
+export function takeLastEstimateRaw(): any {
+  const value = lastEstimateRaw;
+  lastEstimateRaw = null;
+  return value;
+}
 
 export function appendProposalToHistory(
   raw: any,
@@ -97,10 +114,9 @@ export function appendProposalToHistory(
     const id: string =
       (raw.request_id && String(raw.request_id)) ||
       (typeof crypto !== "undefined" &&
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (crypto as any).randomUUID
-        ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (crypto as any).randomUUID()
+        (crypto as any).randomUUID
+        ? (crypto as any).randomUUID()
+        (crypto as any).randomUUID()
         : String(Date.now()));
 
     const domainRaw =
@@ -120,6 +136,7 @@ export function appendProposalToHistory(
 
     const entry: StoredProposalSummary = {
       id,
+      request_id: raw.request_id || "",
       title: derivedTitle,
       domain,
       totalHours,

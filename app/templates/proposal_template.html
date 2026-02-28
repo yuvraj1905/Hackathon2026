@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>{{ project_title }} — Technical Proposal</title>
+  <style>
+    /* ── Reset ─────────────────────────────────────────────── */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-size: 10.5pt;
+      color: #111827;
+      background: #ffffff;
+      line-height: 1.55;
+    }
+
+    /* ── PDF page setup ─────────────────────────────────────── */
+    @page {
+      size: A4;
+      margin: 18mm 16mm 22mm 16mm;
+    }
+
+    /* ── Typography ─────────────────────────────────────────── */
+    h2 {
+      font-size: 13pt;
+      color: #1E40AF;
+      font-weight: 700;
+      margin: 0 0 7pt;
+      border-bottom: 2pt solid #2563EB;
+      padding-bottom: 4pt;
+    }
+    h3 {
+      font-size: 10.5pt;
+      color: #374151;
+      font-weight: 700;
+      margin: 8pt 0 4pt;
+    }
+    p { margin-bottom: 7pt; font-size: 10pt; }
+
+    /* ── Header ─────────────────────────────────────────────── */
+    .header {
+      width: 100%;
+      border-bottom: 3pt solid #2563EB;
+      padding-bottom: 10pt;
+      margin-bottom: 18pt;
+    }
+    .header-table { width: 100%; border-collapse: collapse; }
+    .header-table td { border: none; padding: 0; vertical-align: top; }
+    .company-logo {
+      max-height: 30pt;
+      max-width: 150pt;
+      margin-bottom: 5pt;
+    }
+    .company-name {
+      font-size: 19pt;
+      font-weight: 800;
+      color: #1E40AF;
+      letter-spacing: -0.3pt;
+    }
+    .company-tagline { font-size: 8.5pt; color: #6B7280; margin-top: 2pt; }
+    .header-right { text-align: right; font-size: 8.5pt; color: #6B7280; line-height: 1.6; }
+
+    /* ── Title block ────────────────────────────────────────── */
+    .title-block {
+      background: #EFF6FF;
+      border-left: 4pt solid #2563EB;
+      padding: 14pt 16pt;
+      margin-bottom: 18pt;
+    }
+    .title-label {
+      font-size: 8pt;
+      color: #6B7280;
+      text-transform: uppercase;
+      letter-spacing: 1pt;
+    }
+    .title-main {
+      font-size: 17pt;
+      font-weight: 800;
+      color: #1E40AF;
+      margin: 4pt 0 7pt;
+    }
+    .title-meta { font-size: 8.5pt; color: #374151; }
+
+    /* ── Section ────────────────────────────────────────────── */
+    .section { margin-bottom: 18pt; page-break-inside: avoid; }
+    .avoid-break { page-break-inside: avoid; }
+    .page-break { page-break-before: always; }
+
+    /* ── Features table ─────────────────────────────────────── */
+    .features-table { border-collapse: collapse; width: 100%; margin-bottom: 8pt; }
+    .features-table th {
+      background: #1E40AF;
+      color: #ffffff;
+      padding: 6pt 8pt;
+      text-align: left;
+      font-size: 8.5pt;
+      font-weight: 700;
+    }
+    .features-table td {
+      padding: 5.5pt 8pt;
+      border-bottom: 0.5pt solid #E5E7EB;
+      font-size: 8.5pt;
+      vertical-align: top;
+    }
+    .features-table tr:nth-child(even) td { background: #F9FAFB; }
+    .features-table .total-row td {
+      background: #EFF6FF;
+      font-weight: 700;
+      color: #1E40AF;
+      border-top: 1.5pt solid #2563EB;
+      border-bottom: none;
+      padding: 6pt 8pt;
+    }
+
+    /* ── Complexity badges ──────────────────────────────────── */
+    .badge {
+      display: inline-block;
+      padding: 1pt 5pt;
+      font-size: 7.5pt;
+      font-weight: 700;
+      border-radius: 6pt;
+    }
+    .badge-low       { background: #D1FAE5; color: #065F46; }
+    .badge-medium    { background: #FEF3C7; color: #92400E; }
+    .badge-high      { background: #FEE2E2; color: #991B1B; }
+    .badge-very_high { background: #EDE9FE; color: #5B21B6; }
+
+    /* ── Generic two-col table ──────────────────────────────── */
+    .data-table { border-collapse: collapse; width: 100%; margin-bottom: 8pt; }
+    .data-table th {
+      background: #374151;
+      color: #ffffff;
+      padding: 6pt 8pt;
+      font-size: 8.5pt;
+      text-align: left;
+    }
+    .data-table td {
+      padding: 5.5pt 8pt;
+      font-size: 8.5pt;
+      border-bottom: 0.5pt solid #E5E7EB;
+      vertical-align: top;
+    }
+    .data-table tr:nth-child(even) td { background: #F9FAFB; }
+
+    /* ── Info box ───────────────────────────────────────────── */
+    .info-box {
+      background: #EFF6FF;
+      border: 1pt solid #BFDBFE;
+      padding: 10pt 14pt;
+      margin-bottom: 8pt;
+    }
+    .info-inner-table { border-collapse: collapse; border: none; margin: 0; width: auto; }
+    .info-inner-table td { border: none; padding: 3pt 20pt 3pt 0; vertical-align: top; }
+    .info-label { font-size: 7.5pt; color: #6B7280; text-transform: uppercase; letter-spacing: 0.5pt; }
+    .info-value { font-size: 13pt; font-weight: 700; color: #1E40AF; }
+
+    /* ── Bullet list ────────────────────────────────────────── */
+    ul.styled { list-style: none; padding: 0; margin: 0; }
+    ul.styled li {
+      padding: 3pt 0 3pt 14pt;
+      font-size: 9.5pt;
+      color: #374151;
+      border-bottom: 0.3pt solid #F3F4F6;
+      position: relative;
+    }
+    ul.styled li::before { content: "\25B8"; position: absolute; left: 0; color: #2563EB; }
+
+    /* ── Numbered list ──────────────────────────────────────── */
+    ol.numbered { padding-left: 14pt; margin: 0; }
+    ol.numbered li { font-size: 9.5pt; margin-bottom: 4pt; color: #374151; }
+
+    /* ── Footer ─────────────────────────────────────────────── */
+    .footer {
+      margin-top: 22pt;
+      padding-top: 10pt;
+      border-top: 1pt solid #E5E7EB;
+      text-align: center;
+      font-size: 8pt;
+      color: #9CA3AF;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ═══════════════════ HEADER ═══════════════════ -->
+  <div class="header">
+    <table class="header-table">
+      <tr>
+        <td style="width:58%;">
+          <img class="company-logo" src="{{ company_logo_url }}" alt="{{ company_name }} logo" />
+          <div class="company-name">{{ company_name }}</div>
+          <div class="company-tagline">Technology Consulting &amp; Software Development</div>
+        </td>
+        <td style="width:42%;">
+          <div class="header-right">
+            {{ company_address }}<br/>
+            <a href="{{ company_email_href }}">{{ company_email }}</a><br/>
+            {{ company_phone }}<br/>
+            <strong>Date:</strong> {{ proposal_date }}
+          </div>
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- ═══════════════════ TITLE BLOCK ══════════════ -->
+  <div class="title-block">
+    <h2 style="border:none; margin:0 0 6pt; padding:0; color:#1E40AF;">Proposal Title</h2>
+    <div class="title-label">Technical Proposal</div>
+    <div class="title-main">{{ project_title }}</div>
+    <div class="title-meta">
+      <strong>Ref:</strong> {{ request_id }}&nbsp;&nbsp;|&nbsp;&nbsp;
+      <strong>Domain:</strong> {{ detected_domain }}&nbsp;&nbsp;|&nbsp;&nbsp;
+      <strong>Prepared by:</strong> {{ company_name }}
+    </div>
+  </div>
+
+  <!-- ═══════════════════ 1. EXECUTIVE SUMMARY ═════ -->
+  <div class="section avoid-break">
+    <h2>1. Executive Summary</h2>
+    <p>{{ executive_summary }}</p>
+  </div>
+
+  <!-- ════════════════ 2. UNDERSTANDING OF REQUIREMENTS ════════════ -->
+  <div class="section avoid-break">
+    <h2>2. Understanding of Requirements</h2>
+    <p>{{ scope_of_work }}</p>
+    {% if deliverables %}
+    <h3>Key Deliverables</h3>
+    <ul class="styled">
+      {% for item in deliverables %}
+      <li>{{ item }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+
+  <!-- ═══════════════════ 3. PROPOSED SOLUTION ═════ -->
+  <div class="section avoid-break">
+    <h2>3. Proposed Solution</h2>
+    {% if proposed_solution %}
+    <p>{{ proposed_solution }}</p>
+    {% else %}
+    <p>
+      {{ company_name }} proposes a comprehensive, scalable solution leveraging industry-best
+      practices and modern technology to deliver <strong>{{ project_title }}</strong> on time
+      and within budget. Our approach is iterative, with continuous integration and rigorous
+      quality assurance at every stage.
+    </p>
+    {% endif %}
+    {% if risks %}
+    <h3>Identified Risks &amp; Mitigations</h3>
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="width:50%;">Risk</th>
+          <th style="width:50%;">Mitigation Strategy</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for i in range(risks | length) %}
+        <tr>
+          <td>{{ risks[i] }}</td>
+          <td>{{ mitigation_strategies[i] if i < (mitigation_strategies | length) else "To be assessed during discovery phase." }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+
+  <!-- ══════════ 4. SCOPE OF WORK — FEATURE BREAKDOWN ═══════════ -->
+  <div class="section page-break">
+    <h2>4. Scope of Work — Feature Breakdown</h2>
+    <table class="features-table">
+      <thead>
+        <tr>
+          <th style="width:30%;"># Feature</th>
+          <th style="width:30%;">Description</th>
+          <th style="width:16%;">Complexity</th>
+          <th style="width:24%; text-align:right;">Est. Hours</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for feature in features %}
+        <tr>
+          <td><strong>{{ loop.index }}. {{ feature.name }}</strong></td>
+          <td>
+            {% if feature.description %}
+              {{ feature.description }}
+            {% elif feature.subfeatures %}
+              {{ feature.subfeatures | map(attribute='name') | join(', ') }}
+            {% else %}
+              —
+            {% endif %}
+          </td>
+          <td>
+            <span class="badge badge-{{ feature.complexity }}">
+              {{ feature.complexity | replace("_", " ") | title }}
+            </span>
+          </td>
+          <td style="text-align:right; font-weight:600;">
+            {{ (feature.total_hours | default(feature.estimated_hours) | round(0) | int) }}
+          </td>
+        </tr>
+        {% endfor %}
+        <tr class="total-row">
+          <td colspan="3"><strong>TOTAL ESTIMATED HOURS</strong></td>
+          <td style="text-align:right;"><strong>{{ total_hours | round(0) | int }}</strong></td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="info-box" style="margin-top:8pt;">
+      <strong>Estimation Range:</strong>&nbsp;
+      {{ min_hours | round(0) | int }} — {{ max_hours | round(0) | int }} hours
+      &nbsp;|&nbsp;
+      <strong>Confidence:</strong>&nbsp;{{ (confidence_score * 100) | round(0) | int }}%
+    </div>
+  </div>
+
+  <!-- ══════════ FEATURE DISTRIBUTION DIAGRAM ═══════ -->
+  {% if feature_category_diagram_html %}
+  <div class="section avoid-break">
+    <h3>Feature Distribution by Category</h3>
+    {{ feature_category_diagram_html | safe }}
+  </div>
+  {% endif %}
+
+  <!-- ═══════════════════ 5. TECHNOLOGY STACK ══════ -->
+  <div class="section avoid-break">
+    <h2>5. Technology Stack</h2>
+    <p>{{ tech_justification }}</p>
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="width:24%;">Layer</th>
+          <th style="width:76%;">Technologies</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if tech_frontend %}
+        <tr><td><strong>Frontend</strong></td><td>{{ tech_frontend | join(", ") }}</td></tr>
+        {% endif %}
+        {% if tech_backend %}
+        <tr><td><strong>Backend</strong></td><td>{{ tech_backend | join(", ") }}</td></tr>
+        {% endif %}
+        {% if tech_database %}
+        <tr><td><strong>Database</strong></td><td>{{ tech_database | join(", ") }}</td></tr>
+        {% endif %}
+        {% if tech_infrastructure %}
+        <tr><td><strong>Infrastructure</strong></td><td>{{ tech_infrastructure | join(", ") }}</td></tr>
+        {% endif %}
+        {% if tech_third_party %}
+        <tr><td><strong>Third-party</strong></td><td>{{ tech_third_party | join(", ") }}</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ══════════ ARCHITECTURE DIAGRAM ════════════════ -->
+  {% if architecture_diagram_html %}
+  <div class="section avoid-break">
+    <h3>System Architecture Overview</h3>
+    {{ architecture_diagram_html | safe }}
+  </div>
+  {% endif %}
+
+  <!-- ══════════════════ 6. TEAM COMPOSITION ═══════ -->
+  <div class="section avoid-break">
+    <h2>6. Team Composition</h2>
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="width:65%;">Role</th>
+          <th style="width:35%; text-align:right;">Headcount</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for role, count in team_composition.items() %}
+        <tr>
+          <td>{{ role | replace("_", " ") | title }}</td>
+          <td style="text-align:right; font-weight:600;">{{ count }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ═════════════════════ 7. TIMELINE ════════════ -->
+  <div class="section avoid-break">
+    <h2>7. Timeline</h2>
+    <div class="info-box">
+      <table class="info-inner-table">
+        <tr>
+          <td>
+            <div class="info-label">Estimated Duration</div>
+            <div class="info-value">{{ timeline_weeks }} Weeks</div>
+          </td>
+          <td>
+            <div class="info-label">Total Hours</div>
+            <div class="info-value">{{ total_hours | round(0) | int }} hrs</div>
+          </td>
+          <td>
+            <div class="info-label">Hour Range</div>
+            <div class="info-value">{{ min_hours | round(0) | int }}–{{ max_hours | round(0) | int }}</div>
+          </td>
+        </tr>
+      </table>
+    </div>
+    {% if phase_timeline_diagram_html %}
+    <h3>Effort Distribution by Phase</h3>
+    {{ phase_timeline_diagram_html | safe }}
+    {% endif %}
+    <p style="font-size:9pt; color:#6B7280;">
+      Timeline is based on a full team working within the defined scope.
+      Exact timelines may vary due to client feedback cycles, third-party dependencies,
+      and change requests. A detailed sprint plan will be provided post-sign-off.
+    </p>
+  </div>
+
+  <!-- ═════════════════════ 8. ASSUMPTIONS ════════ -->
+  {% if assumptions %}
+  <div class="section avoid-break">
+    <h2>8. Assumptions</h2>
+    <ol class="numbered">
+      {% for assumption in assumptions %}
+      <li>{{ assumption }}</li>
+      {% endfor %}
+    </ol>
+  </div>
+  {% endif %}
+
+  <!-- ═════════════════════ FOOTER ═════════════════ -->
+  <div class="footer">
+    <strong>{{ company_name }}</strong> &bull; {{ company_address }} &bull;
+    {{ company_email }} &bull; {{ company_phone }}<br/>
+    <em>
+      This document is confidential and prepared exclusively for the intended recipient.
+      Unauthorized reproduction or disclosure is strictly prohibited.
+    </em>
+  </div>
+
+</body>
+</html>

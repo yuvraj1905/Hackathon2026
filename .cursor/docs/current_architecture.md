@@ -800,6 +800,13 @@ When `project_id` is provided:
 - Passes `build_options` and `timeline_constraint` through the pipeline for context-aware processing.
 - After success, inserts a row into `projects` (user_id, additional_details, build_options, timeline_constraint) and, if a file was uploaded, a row into `documents` (user_id, project_id, filename, file_type, extracted_text).
 
+**Response structure (`FinalPipelineResponse`):**
+- `request_id` (str), `domain_detection` (detected_domain, confidence, secondary_domains, reasoning), `estimation` (total_hours, min_hours, max_hours, features, overall_complexity, confidence_score, assumptions), `tech_stack` (frontend, backend, database, infrastructure, third_party_services, justification as nested dicts or lists), `proposal` (executive_summary, scope_of_work, deliverables, timeline_weeks, team_composition, risks, mitigation_strategies), `planning` (phase_split, team_recommendation, complexity_breakdown), `metadata`.
+- Each feature in `estimation.features` has: `name`, `complexity`, `total_hours`, `subfeatures` (list of `{ name, effort }`), `confidence_score`.
+
+**Download Proposal & Proposal Generation:**
+- `/proposal/pdf/{request_id}`, `/proposal/html/{request_id}`, and `/proposal/google-doc/{request_id}` use the cached estimation result for that `request_id` (same structure as above). Context for the proposal template is built via `_build_proposal_context()`: features are normalized (description from subfeature names, total_hours for hours), and tech_stack layers are flattened to lists for display in the HTML template.
+
 ### `/health` Endpoint
 
 **Response:**
