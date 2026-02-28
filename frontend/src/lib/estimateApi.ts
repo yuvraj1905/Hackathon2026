@@ -83,6 +83,7 @@ export async function fetchEstimate(payload: {
 
 export interface StoredProposalSummary {
   id: string;
+  request_id: string;
   title: string;
   domain: string;
   totalHours: number;
@@ -135,6 +136,7 @@ export function appendProposalToHistory(
 
     const entry: StoredProposalSummary = {
       id,
+      request_id: raw.request_id || "",
       title: derivedTitle,
       domain,
       totalHours,
