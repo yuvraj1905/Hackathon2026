@@ -1,10 +1,13 @@
-from fastapi import FastAPI, HTTPException, Request, Depends
+from fastapi import FastAPI, HTTPException, Request, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from contextlib import asynccontextmanager
+from io import BytesIO
+import asyncio
 import json
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 from dotenv import load_dotenv
 
 from app.models.project_models import ProjectRequest, FinalPipelineResponse
@@ -23,6 +26,9 @@ from app.services.auth_service import (
     create_access_token,
     get_current_user,
 )
+from app.services.proposal_renderer import render_proposal
+from app.services.proposal_pdf_service import ProposalPDFService
+from googleapiclient.errors import HttpError as GoogleHttpError
 
 load_dotenv()
 
@@ -31,6 +37,25 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+# ── In-memory estimation cache (LRU-style, capped at 100 entries) ──────────
+_estimation_cache: dict[str, dict] = {}
+_MAX_CACHE_SIZE = 100
+
+pdf_service = ProposalPDFService()
+
+# Lazily initialized on first /proposal/google-doc request (credentials optional)
+_google_docs_service: Any = None
+
+
+def _get_google_docs_service():
+    """Return the module-level GoogleDocsService singleton, creating it on first call."""
+    global _google_docs_service
+    if _google_docs_service is None:
+        from app.services.google_docs_service import GoogleDocsService
+        _google_docs_service = GoogleDocsService()
+    return _google_docs_service
+
 
 pipeline: ProjectPipeline = None
 modification_agent: ModificationAgent = None
@@ -328,10 +353,17 @@ async def estimate_project(
                 )
         except Exception as e:
             logger.warning("Failed to store project data: %s", str(e))
+        # Cache result for proposal PDF generation
+        request_id = result["request_id"]
+        if len(_estimation_cache) >= _MAX_CACHE_SIZE:
+            oldest = next(iter(_estimation_cache))
+            del _estimation_cache[oldest]
+        _estimation_cache[request_id] = result
+        logger.info("Cached estimation: request_id=%s (cache size=%d)", request_id, len(_estimation_cache))
 
         logger.info(
             "Estimation completed: %s mode=%s",
-            result["request_id"],
+            request_id,
             input_mode
         )
 
@@ -420,6 +452,205 @@ async def modify_scope(request: ModificationRequest) -> ModificationResponse:
     except Exception as e:
         logger.error(f"Modification error: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal modification error")
+
+
+def _build_proposal_context(data: dict[str, Any]) -> dict[str, Any]:
+    """
+    Build the Jinja2 template context from a cached estimation result dict.
+
+    Args:
+        data: Raw pipeline result dict (same structure as FinalPipelineResponse).
+
+    Returns:
+        Context dict ready for render_proposal().
+    """
+    proposal = data.get("proposal", {})
+    estimation = data.get("estimation", {})
+    tech_stack = data.get("tech_stack", {})
+    domain_detection = data.get("domain_detection", {})
+    planning = data.get("planning", {})
+
+    detected_domain = (
+        str(domain_detection.get("detected_domain", "Unknown"))
+        .replace("_", " ")
+        .title()
+    )
+
+    return {
+        "request_id": data.get("request_id", "N/A"),
+        "project_title": f"{detected_domain} Platform",
+        "detected_domain": detected_domain,
+        "executive_summary": proposal.get("executive_summary", ""),
+        "proposed_solution": proposal.get("proposed_solution", ""),
+        "scope_of_work": proposal.get("scope_of_work", ""),
+        "deliverables": proposal.get("deliverables", []),
+        "risks": proposal.get("risks", []),
+        "mitigation_strategies": proposal.get("mitigation_strategies", []),
+        "features": estimation.get("features", []),
+        "total_hours": estimation.get("total_hours", 0),
+        "min_hours": estimation.get("min_hours", 0),
+        "max_hours": estimation.get("max_hours", 0),
+        "confidence_score": estimation.get("confidence_score", 0),
+        "assumptions": estimation.get("assumptions", []),
+        "tech_frontend": tech_stack.get("frontend", []),
+        "tech_backend": tech_stack.get("backend", []),
+        "tech_database": tech_stack.get("database", []),
+        "tech_infrastructure": tech_stack.get("infrastructure", []),
+        "tech_third_party": tech_stack.get("third_party_services", []),
+        "tech_justification": tech_stack.get("justification", ""),
+        "team_composition": proposal.get(
+            "team_composition", planning.get("team_recommendation", {})
+        ),
+        "timeline_weeks": proposal.get(
+            "timeline_weeks", planning.get("timeline_weeks", "TBD")
+        ),
+        "phase_split": planning.get("phase_split", {}),
+        "category_breakdown": planning.get("category_breakdown", {}),
+    }
+
+
+@app.get("/proposal/pdf/{request_id}")
+async def get_proposal_pdf(request_id: str) -> StreamingResponse:
+    """
+    Generate and stream a branded PDF proposal for a previously run estimation.
+
+    Args:
+        request_id: The UUID returned in the /estimate response.
+
+    Returns:
+        Streaming PDF response suitable for inline browser display.
+
+    Raises:
+        404 if the estimation is not found in the cache (re-run /estimate first).
+    """
+    cached = _estimation_cache.get(request_id)
+    if cached is None:
+        logger.warning("Proposal PDF requested for unknown request_id=%s", request_id)
+        raise HTTPException(
+            status_code=404,
+            detail=f"Estimation '{request_id}' not found. Re-run the estimation to regenerate.",
+        )
+
+    try:
+        logger.info("Generating proposal PDF for request_id=%s", request_id)
+        context = _build_proposal_context(cached)
+        html = render_proposal(context)
+        pdf_bytes = pdf_service.generate_pdf(html)
+    except RuntimeError as exc:
+        # WeasyPrint system libraries (Pango/Cairo) not installed
+        logger.error("PDF generation unavailable: %s", exc)
+        raise HTTPException(status_code=503, detail=str(exc))
+    except Exception:
+        logger.exception("Proposal PDF generation failed for request_id=%s", request_id)
+        raise HTTPException(status_code=500, detail="Failed to generate proposal PDF")
+
+    logger.info(
+        "Serving proposal PDF: request_id=%s size=%d bytes",
+        request_id,
+        len(pdf_bytes),
+    )
+
+    return StreamingResponse(
+        BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": 'inline; filename="proposal.pdf"',
+        },
+    )
+
+
+@app.get("/proposal/html/{request_id}")
+async def get_proposal_html(request_id: str) -> dict:
+    """
+    Return rendered proposal HTML and title for client-side Google Docs export.
+
+    Args:
+        request_id: The UUID returned by /estimate.
+
+    Returns:
+        JSON: ``{"html": "<rendered html>", "title": "Project — Proposal"}``
+    """
+    cached = _estimation_cache.get(request_id)
+    if cached is None:
+        logger.warning("Proposal HTML requested for unknown request_id=%s", request_id)
+        raise HTTPException(
+            status_code=404,
+            detail=f"Estimation '{request_id}' not found. Re-run the estimation to regenerate.",
+        )
+
+    try:
+        context = _build_proposal_context(cached)
+        html = render_proposal(context)
+        title = f"{context['project_title']} — Proposal"
+    except Exception:
+        logger.exception("Proposal HTML generation failed for request_id=%s", request_id)
+        raise HTTPException(status_code=500, detail="Failed to generate proposal HTML")
+
+    logger.info("Serving proposal HTML: request_id=%s", request_id)
+    return {"html": html, "title": title}
+
+
+@app.get("/proposal/google-doc/{request_id}")
+async def get_proposal_google_doc(
+    request_id: str,
+    email: Optional[str] = Query(default=None, description="Grant this email writer access to the doc"),
+) -> dict:
+    """
+    Generate a branded proposal as a native Google Doc and return its edit URL.
+
+    Args:
+        request_id: The UUID returned by /estimate.
+        email:       Optional query param — if provided, the doc is shared with this address.
+
+    Returns:
+        JSON: ``{"doc_url": "https://docs.google.com/document/d/.../edit"}``
+
+    Raises:
+        404: estimation not in cache (re-run /estimate first).
+        503: service account credentials missing or invalid.
+        502: Google API returned an unexpected error.
+    """
+    cached = _estimation_cache.get(request_id)
+    if cached is None:
+        logger.warning("Google Doc requested for unknown request_id=%s", request_id)
+        raise HTTPException(
+            status_code=404,
+            detail=f"Estimation '{request_id}' not found. Re-run the estimation to regenerate.",
+        )
+
+    # Resolve share email: use provided value, fall back to configured default
+    from app.config.settings import settings as _settings
+    candidate = (email or "").strip()
+    if candidate and "@" not in candidate:
+        logger.warning("Invalid email param '%s' — falling back to default", candidate)
+        candidate = ""
+    share_email: str = candidate or _settings.DEFAULT_PROPOSAL_SHARE_EMAIL
+    logger.info("Sharing generated proposal with: %s", share_email)
+
+    context = _build_proposal_context(cached)
+    html = render_proposal(context)
+    title = f"{context['project_title']} — Proposal"
+
+    try:
+        svc = _get_google_docs_service()
+        doc_url: str = await asyncio.to_thread(
+            svc.create_doc_from_html, html, title, share_email
+        )
+    except Exception as exc:
+        logger.warning(
+            "Google Docs export failed for request_id=%s (%s: %s) — falling back to PDF",
+            request_id,
+            type(exc).__name__,
+            exc,
+        )
+        return {
+            "doc_url": f"/proposal/pdf/{request_id}",
+            "fallback": True,
+            "message": "Google Docs unavailable — opening as PDF instead.",
+        }
+
+    logger.info("Google Doc ready: request_id=%s url=%s", request_id, doc_url)
+    return {"doc_url": doc_url}
 
 
 def _generate_changes_summary(

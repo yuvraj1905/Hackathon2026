@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import "./globals.css";
 import { Providers } from "@/components/Providers";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -20,6 +21,10 @@ export default function RootLayout({
           <ThemeToggle />
           {children}
         </Providers>
+        <Script
+          src="https://accounts.google.com/gsi/client"
+          strategy="lazyOnload"
+        />
       </body>
     </html>
   );
