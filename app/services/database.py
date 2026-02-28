@@ -40,6 +40,28 @@ class DatabaseManager:
             command_timeout=30,
         )
 
+        # Ensure email pipeline table exists
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS email_estimate_requests (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    message_id TEXT UNIQUE,
+                    sender_email TEXT NOT NULL,
+                    subject TEXT NOT NULL DEFAULT '',
+                    raw_body TEXT NOT NULL DEFAULT '',
+                    attachments_count INT NOT NULL DEFAULT 0,
+                    parsed_requirements JSONB,
+                    estimate_result JSONB,
+                    pdf_generated BOOLEAN NOT NULL DEFAULT FALSE,
+                    reply_sent BOOLEAN NOT NULL DEFAULT FALSE,
+                    sales_notified BOOLEAN NOT NULL DEFAULT FALSE,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    error_message TEXT,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+            """)
+
     async def disconnect(self) -> None:
         if self.pool is None:
             return

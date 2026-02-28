@@ -6,7 +6,7 @@ if os.path.exists("/opt/homebrew/lib"):
     brew = "/opt/homebrew/lib:/opt/homebrew/opt/pango/lib:/opt/homebrew/opt/cairo/lib:/opt/homebrew/opt/gdk-pixbuf/lib"
     os.environ["DYLD_FALLBACK_LIBRARY_PATH"] = brew + (":" + current if current else "")
 
-from fastapi import FastAPI, HTTPException, Request, Depends, Query
+from fastapi import FastAPI, HTTPException, Request, Depends, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from contextlib import asynccontextmanager
@@ -22,6 +22,7 @@ from dotenv import load_dotenv
 from app.models.project_models import ProjectRequest, FinalPipelineResponse, ProjectListItem
 from app.models.modification_models import ModificationRequest, ModificationResponse
 from app.models.user_models import UserLogin, TokenResponse, UserResponse, UserInDB
+from app.models.email_models import InboundEmailData, InboundAttachment
 from app.orchestrator.project_pipeline import ProjectPipeline
 from app.agents.modification_agent import ModificationAgent
 from app.agents.estimation_agent import EstimationAgent
@@ -37,6 +38,7 @@ from app.services.auth_service import (
 )
 from app.services.proposal_renderer import render_proposal
 from app.services.proposal_pdf_service import ProposalPDFService
+from app.services.email_pipeline import process_inbound_email
 from googleapiclient.errors import HttpError as GoogleHttpError
 
 load_dotenv()
@@ -942,5 +944,131 @@ def _generate_changes_summary(
         changes.append("Modified existing features")
     
     return ", ".join(changes) if changes else "No changes detected"
+
+
+# ── Inbound email webhook (SendGrid Inbound Parse) ──────────────────
+
+@app.post("/api/webhooks/inbound-email/{webhook_secret}")
+async def inbound_email_webhook(
+    webhook_secret: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+) -> dict:
+    """
+    Receive inbound emails from SendGrid Inbound Parse.
+
+    SendGrid posts multipart/form-data containing the email fields.
+    The webhook secret in the URL path provides basic authentication.
+    Processing happens in the background so we can return 200 quickly
+    and avoid SendGrid retries.
+    """
+    from app.config.settings import settings as _settings
+
+    # ── Validate webhook secret ──────────────────────────────────
+    if not _settings.SENDGRID_WEBHOOK_SECRET:
+        logger.error("SENDGRID_WEBHOOK_SECRET is not configured")
+        raise HTTPException(status_code=503, detail="Webhook not configured")
+
+    if webhook_secret != _settings.SENDGRID_WEBHOOK_SECRET:
+        logger.warning("Inbound email webhook: invalid secret")
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    # ── Parse SendGrid form data ─────────────────────────────────
+    try:
+        form = await request.form()
+
+        # Sender — parse the "from" field (e.g. "Jane Doe <jane@example.com>")
+        raw_from = str(form.get("from", ""))
+        sender_email, sender_name = _parse_sendgrid_from(raw_from)
+
+        envelope_raw = str(form.get("envelope", "{}"))
+        try:
+            envelope = json.loads(envelope_raw)
+        except json.JSONDecodeError:
+            envelope = {}
+
+        to_email = str(form.get("to", envelope.get("to", [""])[0] if isinstance(envelope.get("to"), list) else ""))
+        subject = str(form.get("subject", ""))
+        body_plain = str(form.get("text", ""))
+        body_html = str(form.get("html", ""))
+
+        # Headers — extract Message-ID for threading / dedup
+        headers_raw = str(form.get("headers", ""))
+        message_id = _extract_header(headers_raw, "Message-ID") or ""
+
+        # Attachments
+        attachment_info_raw = str(form.get("attachment-info", "{}"))
+        try:
+            attachment_info = json.loads(attachment_info_raw)
+        except json.JSONDecodeError:
+            attachment_info = {}
+
+        attachments: list[InboundAttachment] = []
+        attachment_bytes: dict[str, bytes] = {}
+
+        for key, info in attachment_info.items():
+            filename = info.get("filename", key)
+            content_type = info.get("type", "application/octet-stream")
+            file_item = form.get(key)
+            if file_item is not None and hasattr(file_item, "read"):
+                content = await file_item.read()
+                attachments.append(InboundAttachment(
+                    filename=filename,
+                    content_type=content_type,
+                    size=len(content),
+                ))
+                attachment_bytes[filename] = content
+
+        email_data = InboundEmailData(
+            sender_email=sender_email,
+            sender_name=sender_name,
+            to_email=to_email,
+            subject=subject,
+            body_plain=body_plain,
+            body_html=body_html,
+            message_id=message_id,
+            attachments=attachments,
+            attachment_bytes=attachment_bytes,
+        )
+
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to parse inbound email webhook payload")
+        raise HTTPException(status_code=400, detail="Malformed webhook payload")
+
+    # ── Schedule background processing ───────────────────────────
+    logger.info(
+        "Inbound email received: from=%s subject=%s attachments=%d — scheduling background processing",
+        sender_email,
+        subject,
+        len(attachments),
+    )
+    background_tasks.add_task(process_inbound_email, email_data, pipeline)
+
+    return {"status": "accepted"}
+
+
+def _parse_sendgrid_from(raw: str) -> tuple[str, str]:
+    """
+    Parse a SendGrid ``from`` field like ``"Jane Doe <jane@example.com>"``
+    into ``(email, display_name)``.
+    """
+    import re
+
+    match = re.match(r'^"?(.+?)"?\s*<([^>]+)>$', raw.strip())
+    if match:
+        return match.group(2).strip(), match.group(1).strip()
+    # Bare email
+    return raw.strip(), ""
+
+
+def _extract_header(headers_blob: str, name: str) -> str:
+    """Extract a single header value from a raw headers string."""
+    import re
+
+    pattern = rf"^{re.escape(name)}:\s*(.+)$"
+    match = re.search(pattern, headers_blob, re.MULTILINE | re.IGNORECASE)
+    return match.group(1).strip() if match else ""
 
 
