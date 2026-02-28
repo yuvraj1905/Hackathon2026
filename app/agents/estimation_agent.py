@@ -140,7 +140,7 @@ class EstimationAgent(BaseAgent):
             total_hours += feature_total
         
         min_hours = total_hours * 0.85
-        max_hours = total_hours * 1.35
+        max_hours = total_hours * 1.15
         
         return {
             "total_hours": round(total_hours, 1),
