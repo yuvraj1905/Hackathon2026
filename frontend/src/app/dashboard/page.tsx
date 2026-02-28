@@ -5,7 +5,6 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Brain,
-  History,
   LogOut,
   Layers,
   RefreshCw,
@@ -33,7 +32,7 @@ import { ProposalsSection } from "../../components/ProposalsSection";
 import {
   appendProposalToHistory,
   fetchEstimate,
-  loadProposalsHistory,
+  fetchProjects,
   setLastEstimateRaw,
   takeLastEstimateRaw,
   type StoredProposalSummary,
@@ -69,6 +68,8 @@ export default function DashboardPage() {
   const [projectDesc, setProjectDesc] = useState("");
   const [platforms, setPlatforms] = useState<string[]>([]);
   const [timeline, setTimeline] = useState("");
+  const [proposalsLoading, setProposalsLoading] = useState(false);
+  const [proposalsError, setProposalsError] = useState<string | null>(null);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState<LoadingStep>("idle");
@@ -76,7 +77,25 @@ export default function DashboardPage() {
   const { toast } = useToast();
 
   useEffect(() => {
-    setProposalsHistory(loadProposalsHistory());
+    let cancelled = false;
+    setProposalsLoading(true);
+    setProposalsError(null);
+    fetchProjects()
+      .then((list) => {
+        if (!cancelled) setProposalsHistory(list);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setProposalsError(err?.message ?? "Failed to load proposals");
+          setProposalsHistory([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setProposalsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -93,6 +112,7 @@ export default function DashboardPage() {
       setRawApiResponse(raw);
       setShowResults(true);
       setActiveTab("estimates");
+      fetchProjects().then(setProposalsHistory).catch(() => { });
     } catch {
       // ignore
     }

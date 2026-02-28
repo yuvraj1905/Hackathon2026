@@ -116,7 +116,7 @@ export function appendProposalToHistory(
       (typeof crypto !== "undefined" &&
         (crypto as any).randomUUID
         ? (crypto as any).randomUUID()
-        (crypto as any).randomUUID()
+          (crypto as any).randomUUID()
         : String(Date.now()));
 
     const domainRaw =
@@ -134,9 +134,11 @@ export function appendProposalToHistory(
 
     const createdAt = new Date().toISOString();
 
+    const request_id = raw.request_id || "";
+
     const entry: StoredProposalSummary = {
       id,
-      request_id: raw.request_id || "",
+      request_id,
       title: derivedTitle,
       domain,
       totalHours,
@@ -155,6 +157,30 @@ export function appendProposalToHistory(
   } catch {
     // Swallow storage errors – history is a non-critical enhancement.
   }
+}
+
+export async function fetchProjects(): Promise<StoredProposalSummary[]> {
+  const token = getAuthToken();
+  if (!token) {
+    throw new Error("Authentication required. Please log in again.");
+  }
+  const API_BASE = getApiBase();
+  const response = await fetch(`${API_BASE}/projects`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  if (!response.ok) {
+    const errText = await response.text().catch(() => "");
+    if (response.status === 401) {
+      throw new Error("Session expired. Please log in again.");
+    }
+    throw new Error(
+      `Failed to load projects (${response.status}): ${errText || response.statusText}`,
+    );
+  }
+  return response.json();
 }
 
 export function loadProposalsHistory(): StoredProposalSummary[] {

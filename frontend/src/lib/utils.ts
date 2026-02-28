@@ -56,12 +56,21 @@ export interface ResourceRow {
     total: number;
 }
 
+export interface ProjectTimelinePhase {
+    phase: string;
+    duration: string;
+    description: string;
+}
+
 export interface ProposalData {
+    abstract: string;
     executiveSummary: string;
     scopeOfWork: string;
     deliverables: string[];
+    projectTimeline: ProjectTimelinePhase[];
     risks: string[];
     assumptions: string[];
+    clientDependencies: string[];
     minHours: number;
     maxHours: number;
 }
