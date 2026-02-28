@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Optional
 from dotenv import load_dotenv
 
-from app.models.project_models import ProjectRequest, FinalPipelineResponse
+from app.models.project_models import ProjectRequest, FinalPipelineResponse, ProjectListItem
 from app.models.modification_models import ModificationRequest, ModificationResponse
 from app.models.user_models import UserLogin, TokenResponse, UserResponse, UserInDB
 from app.orchestrator.project_pipeline import ProjectPipeline
@@ -513,6 +513,72 @@ async def estimate_project(
     except Exception as e:
         logger.error(f"Pipeline error: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal estimation error")
+
+
+@app.get("/projects", response_model=list[ProjectListItem])
+async def list_projects(
+    current_user: UserInDB = Depends(get_current_user),
+) -> list[ProjectListItem]:
+    """
+    List all projects for the authenticated user (for Proposals tab).
+
+    Returns projects ordered by created_at descending. Each item includes id, title,
+    domain, totalHours, and createdAt so the frontend can display and link to
+    proposal PDF/Doc.
+    """
+    try:
+        async with db.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, additional_details, estimate_data, created_at
+                FROM projects
+                WHERE user_id = $1
+                ORDER BY created_at DESC
+                """,
+                current_user.id,
+            )
+        out: list[ProjectListItem] = []
+        for row in rows:
+            pid = str(row["id"])
+            created_at = row["created_at"]
+            created_iso = created_at.isoformat() if created_at else ""
+            est = row.get("estimate_data")
+            if isinstance(est, str):
+                try:
+                    est = json.loads(est) if est else None
+                except json.JSONDecodeError:
+                    est = None
+            if not isinstance(est, dict):
+                est = None
+            additional = (row.get("additional_details") or "")[:200]
+            domain_raw = "unknown"
+            total_hrs = 0.0
+            title = "New proposal"
+            if est:
+                dd = est.get("domain_detection") or {}
+                domain_raw = (dd.get("detected_domain") or "unknown").replace("_", " ").strip()
+                meta = est.get("metadata") or {}
+                title = (meta.get("project_title") or "").strip() or (additional[:80] + ("..." if len(additional) > 80 else "")) or "New proposal"
+                try:
+                    total_hrs = float((est.get("estimation") or {}).get("total_hours") or 0)
+                except (TypeError, ValueError):
+                    total_hrs = 0.0
+            else:
+                title = (additional[:80] + ("..." if len(additional) > 80 else "")) if additional else "New proposal"
+            out.append(
+                ProjectListItem(
+                    id=pid,
+                    request_id=pid,
+                    title=title or "New proposal",
+                    domain=domain_raw or "unknown",
+                    totalHours=max(0.0, total_hrs),
+                    createdAt=created_iso,
+                )
+            )
+        return out
+    except Exception as e:
+        logger.warning("Failed to list projects for user %s: %s", current_user.id, e)
+        raise HTTPException(status_code=500, detail="Failed to load projects")
 
 
 @app.post("/modify", response_model=ModificationResponse)

@@ -81,6 +81,34 @@ export async function fetchEstimate(payload: {
   return response.json();
 }
 
+/**
+ * Fetch all projects for the current user from the backend (projects table).
+ * Use this for the Proposals tab instead of session storage.
+ */
+export async function fetchProjects(): Promise<StoredProposalSummary[]> {
+  const token = getAuthToken();
+  if (!token) {
+    throw new Error("Authentication required. Please log in again.");
+  }
+  const API_BASE = getApiBase();
+  const response = await fetch(`${API_BASE}/projects`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  if (!response.ok) {
+    const errText = await response.text().catch(() => "");
+    if (response.status === 401) {
+      throw new Error("Session expired. Please log in again.");
+    }
+    throw new Error(
+      `Failed to load projects (${response.status}): ${errText || response.statusText}`,
+    );
+  }
+  return response.json();
+}
+
 export interface StoredProposalSummary {
   id: string;
   request_id: string;
