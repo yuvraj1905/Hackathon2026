@@ -606,22 +606,28 @@ def _build_proposal_context(data: dict[str, Any]) -> dict[str, Any]:
             "confidence_score": f.get("confidence_score", 0),
         })
 
+    # Prefer proposal assumptions (LLM-generated) over estimation assumptions (hardcoded fallback)
+    assumptions = proposal.get("assumptions", []) or estimation.get("assumptions", [])
+
     return {
         "request_id": data.get("request_id", "N/A"),
         "project_title": f"{detected_domain} Platform",
         "detected_domain": detected_domain,
+        "abstract": proposal.get("abstract", ""),
         "executive_summary": proposal.get("executive_summary", ""),
         "proposed_solution": proposal.get("proposed_solution", ""),
         "scope_of_work": proposal.get("scope_of_work", ""),
         "deliverables": proposal.get("deliverables", []),
+        "project_timeline": proposal.get("project_timeline", []),
         "risks": proposal.get("risks", []),
         "mitigation_strategies": proposal.get("mitigation_strategies", []),
+        "assumptions": assumptions,
+        "client_dependencies": proposal.get("client_dependencies", []),
         "features": features,
         "total_hours": estimation.get("total_hours", 0),
         "min_hours": estimation.get("min_hours", 0),
         "max_hours": estimation.get("max_hours", 0),
         "confidence_score": estimation.get("confidence_score", 0),
-        "assumptions": estimation.get("assumptions", []),
         "tech_frontend": _flatten_tech_layer(tech_stack.get("frontend")),
         "tech_backend": _flatten_tech_layer(tech_stack.get("backend")),
         "tech_database": _flatten_tech_layer(tech_stack.get("database")),

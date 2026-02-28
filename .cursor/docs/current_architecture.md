@@ -80,11 +80,11 @@
 
 The system supports **three input modes**:
 
-| Mode | Description |
-|------|-------------|
-| `manual_only` | User provides text description directly |
-| `file_only` | User uploads PRD document (PDF/DOCX/Excel) |
-| `hybrid` | User provides both manual description AND uploads document |
+| Mode          | Description                                                |
+| ------------- | ---------------------------------------------------------- |
+| `manual_only` | User provides text description directly                    |
+| `file_only`   | User uploads PRD document (PDF/DOCX/Excel)                 |
+| `hybrid`      | User provides both manual description AND uploads document |
 
 ### Document Parser
 
@@ -94,11 +94,13 @@ The system supports **three input modes**:
 Extracts text from uploaded business documents (PRDs, specifications, etc.)
 
 **Supported Formats:**
+
 - `.pdf` - PDF documents (using `pdfplumber` with table extraction)
 - `.docx` - Word documents (using `python-docx` with tables and headers/footers)
 - `.xlsx` / `.xls` - Excel spreadsheets (using `pandas` + `openpyxl`/`xlrd`)
 
 **Constraints:**
+
 ```python
 MAX_FILE_SIZE_MB = 10
 MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
@@ -107,12 +109,14 @@ PARSE_TIMEOUT_SECONDS = 30
 ```
 
 **Features:**
+
 - **PDF:** Layout-aware extraction with table support (pdfplumber)
 - **DOCX:** Extracts paragraphs, tables, headers, and footers
 - **Tables:** Formatted as markdown-style pipe-separated rows
 - **LLM Cleanup:** Optional post-processing to fix OCR errors and normalize formatting
 
 **Text Cleaning:**
+
 - Removes null characters
 - Collapses multiple spaces/tabs
 - Limits consecutive newlines to 2
@@ -126,6 +130,7 @@ PARSE_TIMEOUT_SECONDS = 30
 Combines manual description with extracted document text into a single normalized input.
 
 **Fusion Rules:**
+
 ```python
 MAX_INPUT_CHARS = 20000
 
@@ -137,7 +142,7 @@ if has_manual and has_extracted:
 elif has_manual:
     final = manual
 
-# Only extracted: use as-is  
+# Only extracted: use as-is
 elif has_extracted:
     final = extracted
 
@@ -152,32 +157,32 @@ else:
 
 ### LLM-Powered Components (6)
 
-| Component | File | Model | Purpose |
-|-----------|------|-------|---------|
-| Domain Detection Agent | `agents/domain_detection_agent.py` | GPT-4o-mini | Classify project into domains with full context |
-| **Smart Template Expander** | `services/template_expander.py` | GPT-4o-mini | Intelligently select relevant modules from templates |
-| **Fallback Module Generator** | `services/fallback_module_generator.py` | GPT-4o-mini | Generate modules for unknown/unmapped domains |
-| Feature Structuring Agent | `agents/feature_structuring_agent.py` | GPT-4o-mini | Extract and normalize features |
-| Proposal Agent | `agents/proposal_agent.py` | GPT-4o-mini | Generate client-ready proposal |
-| Modification Agent | `agents/modification_agent.py` | GPT-4o-mini | Modify scope based on instruction |
+| Component                     | File                                    | Model       | Purpose                                              |
+| ----------------------------- | --------------------------------------- | ----------- | ---------------------------------------------------- |
+| Domain Detection Agent        | `agents/domain_detection_agent.py`      | GPT-4o-mini | Classify project into domains with full context      |
+| **Smart Template Expander**   | `services/template_expander.py`         | GPT-4o-mini | Intelligently select relevant modules from templates |
+| **Fallback Module Generator** | `services/fallback_module_generator.py` | GPT-4o-mini | Generate modules for unknown/unmapped domains        |
+| Feature Structuring Agent     | `agents/feature_structuring_agent.py`   | GPT-4o-mini | Extract and normalize features                       |
+| Proposal Agent                | `agents/proposal_agent.py`              | GPT-4o-mini | Generate client-ready proposal                       |
+| Modification Agent            | `agents/modification_agent.py`          | GPT-4o-mini | Modify scope based on instruction                    |
 
 ### Static/Deterministic Components (8)
 
-| Component | File | Purpose |
-|-----------|------|---------|
-| **Document Parser** | `services/document_parser.py` | Extract text from PDF/DOCX/Excel PRDs |
-| **Input Fusion Service** | `services/input_fusion_service.py` | Combine manual + extracted inputs |
-| **Database Manager** | `services/database.py` | PostgreSQL connection pool management |
-| **Domain Alias Resolver** | `config/domain_aliases.py` | Map detected domains to template domains |
-| Estimation Agent | `agents/estimation_agent.py` | Apply base hours + calibration + buffer |
-| Calibration Engine | `services/calibration_engine.py` | Historical data lookup with fuzzy matching |
-| Confidence Engine | `services/confidence_engine.py` | Formula-based confidence calculation |
-| Planning Engine | `services/planning_engine.py` | Fixed ratios for phases/team sizing |
+| Component                 | File                               | Purpose                                    |
+| ------------------------- | ---------------------------------- | ------------------------------------------ |
+| **Document Parser**       | `services/document_parser.py`      | Extract text from PDF/DOCX/Excel PRDs      |
+| **Input Fusion Service**  | `services/input_fusion_service.py` | Combine manual + extracted inputs          |
+| **Database Manager**      | `services/database.py`             | PostgreSQL connection pool management      |
+| **Domain Alias Resolver** | `config/domain_aliases.py`         | Map detected domains to template domains   |
+| Estimation Agent          | `agents/estimation_agent.py`       | Apply base hours + calibration + buffer    |
+| Calibration Engine        | `services/calibration_engine.py`   | Historical data lookup with fuzzy matching |
+| Confidence Engine         | `services/confidence_engine.py`    | Formula-based confidence calculation       |
+| Planning Engine           | `services/planning_engine.py`      | Fixed ratios for phases/team sizing        |
 
 ### Hybrid Components (1)
 
-| Component | File | Purpose |
-|-----------|------|---------|
+| Component        | File                         | Purpose                                                     |
+| ---------------- | ---------------------------- | ----------------------------------------------------------- |
 | Tech Stack Agent | `agents/tech_stack_agent.py` | Static mapping for known domains, LLM fallback for unknowns |
 
 ---
@@ -193,14 +198,15 @@ else:
 
 **Supported File Types:**
 
-| Extension | Library | Notes |
-|-----------|---------|-------|
-| `.pdf` | `pdfplumber` | Layout-aware extraction with table support |
-| `.docx` | `python-docx` | Extracts paragraphs, tables, headers, footers |
-| `.xlsx` | `pandas` + `openpyxl` | Converts all sheets to text with pipe separators |
-| `.xls` | `pandas` + `xlrd` | Legacy Excel format support |
+| Extension | Library               | Notes                                            |
+| --------- | --------------------- | ------------------------------------------------ |
+| `.pdf`    | `pdfplumber`          | Layout-aware extraction with table support       |
+| `.docx`   | `python-docx`         | Extracts paragraphs, tables, headers, footers    |
+| `.xlsx`   | `pandas` + `openpyxl` | Converts all sheets to text with pipe separators |
+| `.xls`    | `pandas` + `xlrd`     | Legacy Excel format support                      |
 
 **PDF Extraction (with tables):**
+
 ```python
 def _extract_pdf_text(content: bytes) -> str:
     with pdfplumber.open(BytesIO(content)) as pdf:
@@ -214,6 +220,7 @@ def _extract_pdf_text(content: bytes) -> str:
 ```
 
 **DOCX Extraction (with tables and headers):**
+
 ```python
 def _extract_docx_text(content: bytes) -> str:
     doc = Document(BytesIO(content))
@@ -234,12 +241,14 @@ def _extract_docx_text(content: bytes) -> str:
 **Purpose:** Clean and structure extracted document text using LLM.
 
 **Features:**
+
 - Fix OCR/layout errors (garbled text, split words)
 - Normalize formatting (headings, bullets, numbered lists)
 - Preserve all original content
 - Auto-triggered based on extraction quality heuristics
 
 **Quality Check Heuristics:**
+
 - Short extraction from large file (< 500 chars from > 100KB)
 - High special character ratio (> 30%)
 
@@ -254,11 +263,11 @@ def _extract_docx_text(content: bytes) -> str:
 
 **Input Modes:**
 
-| Mode | Manual | File | Result |
-|------|--------|------|--------|
-| `hybrid` | ✓ | ✓ | Manual + "Additional context from client documents:" + Extracted |
-| `manual_only` | ✓ | ✗ | Manual only |
-| `file_only` | ✗ | ✓ | Extracted only |
+| Mode          | Manual | File | Result                                                           |
+| ------------- | ------ | ---- | ---------------------------------------------------------------- |
+| `hybrid`      | ✓      | ✓    | Manual + "Additional context from client documents:" + Extracted |
+| `manual_only` | ✓      | ✗    | Manual only                                                      |
+| `file_only`   | ✗      | ✓    | Extracted only                                                   |
 
 **Truncation:** Final description is truncated to `MAX_INPUT_CHARS = 20000` characters.
 
@@ -272,6 +281,7 @@ def _extract_docx_text(content: bytes) -> str:
 **Purpose:** PostgreSQL connection pool management using `asyncpg`.
 
 **Configuration:**
+
 ```python
 pool = await asyncpg.create_pool(
     dsn=database_url,
@@ -282,6 +292,7 @@ pool = await asyncpg.create_pool(
 ```
 
 **Features:**
+
 - Async connection pooling
 - Health check endpoint
 - Automatic cleanup of unsupported query params (e.g., `channel_binding`)
@@ -298,6 +309,7 @@ pool = await asyncpg.create_pool(
 
 **Context-Aware Classification:**
 The upgraded agent receives full project context for better classification:
+
 - `description` - Fused description from manual input + extracted document text
 - `additional_details` - Raw manual requirement text (verbatim)
 - `extracted_text` - Raw parsed document text (verbatim)
@@ -307,20 +319,22 @@ The upgraded agent receives full project context for better classification:
 
 **Available Domains (24):**
 
-| Category | Domains |
-|----------|---------|
-| **Industry-Specific** | `ecommerce`, `fintech`, `healthcare`, `education`, `marketplace`, `logistics`, `insurance`, `enterprise` |
-| **Platform-Type** | `saas`, `iot`, `social_media` |
-| **Generic** | `mobile_app`, `web_app`, `ai_ml`, `blockchain`, `unknown` |
-| **Domain Templates** | `edtech`, `crm`, `hrms`, `real_estate`, `project_management`, `social_media_platform`, `food_delivery`, `travel_booking`, `iot_platform` |
+| Category              | Domains                                                                                                                                  |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| **Industry-Specific** | `ecommerce`, `fintech`, `healthcare`, `education`, `marketplace`, `logistics`, `insurance`, `enterprise`                                 |
+| **Platform-Type**     | `saas`, `iot`, `social_media`                                                                                                            |
+| **Generic**           | `mobile_app`, `web_app`, `ai_ml`, `blockchain`, `unknown`                                                                                |
+| **Domain Templates**  | `edtech`, `crm`, `hrms`, `real_estate`, `project_management`, `social_media_platform`, `food_delivery`, `travel_booking`, `iot_platform` |
 
 **Classification Rules:**
+
 1. Always prefer specific industry domain over generic
 2. Multi-vendor/seller → `marketplace` (not `ecommerce`)
 3. Consider what the END USER does, not just the technology
 4. Use keywords: "patients" → `healthcare`, "courses/students" → `education`
 
 **Confidence Normalization:**
+
 ```python
 # Raw LLM confidence (0-1) is scaled to realistic range (0.65-0.95)
 normalized = 0.65 + (raw_confidence * 0.30)
@@ -336,6 +350,7 @@ normalized = 0.65 + (raw_confidence * 0.30)
 **Purpose:** Maps detected domain names to template domain names, handling mismatches between what the Domain Detection Agent outputs and what exists in `DOMAIN_TEMPLATES`.
 
 **Alias Mappings:**
+
 ```python
 DOMAIN_ALIASES = {
     "education": "edtech",
@@ -350,6 +365,7 @@ DOMAIN_ALIASES = {
 ```
 
 **Functions:**
+
 - `resolve_domain_alias(detected_domain)` - Returns template domain name
 - `should_use_fallback(detected_domain)` - Returns True if LLM fallback needed
 
@@ -364,6 +380,7 @@ DOMAIN_ALIASES = {
 **Output:** Tuple of (enriched_description, selected_modules)
 
 **How it works:**
+
 1. **Domain Resolution:** Uses `resolve_domain_alias()` to map detected domain to template domain
 2. **Template Lookup:** Gets all modules from `DOMAIN_TEMPLATES` for the resolved domain
 3. **LLM Module Selection:** Uses LLM to intelligently select relevant modules based on:
@@ -374,12 +391,14 @@ DOMAIN_ALIASES = {
 5. **Enriched Description:** Builds description with selected modules appended
 
 **Module Selection Criteria:**
+
 - **Explicitly Required** - Directly mentioned or implied in description
 - **Core Dependencies** - Required for other features (e.g., Auth for user features)
 - **Industry Standard** - Expected in any product of that domain
 - **Platform Requirements** - Needed based on build_options
 
 **Exclusion Criteria:**
+
 - Clearly out of scope based on description
 - Advanced features not mentioned for basic projects
 - Platform-specific features for platforms not being built
@@ -399,6 +418,7 @@ DOMAIN_ALIASES = {
 **Output:** List of generated module strings with sub-features
 
 **Generation Approach (Solutions Architect Mindset):**
+
 1. **Core Business Logic** - Primary features that make the product work
 2. **User Management** - Authentication, roles, permissions
 3. **Data & Content** - Storage, management, search, display
@@ -417,18 +437,18 @@ DOMAIN_ALIASES = {
 
 **File:** `app/config/domain_templates.py`
 
-| Domain | # Modules | Key Modules |
-|--------|-----------|-------------|
-| `ecommerce` | 12 | Auth, Product Catalog, Cart, Orders, Payments, Admin, Search, Profile, Email, Reviews, Coupons, Shipping |
-| `saas` | 12 | Auth (SSO/MFA/RBAC), Multi-tenant, Subscriptions, Admin, Users, API Gateway, Audit, Email, Onboarding, Settings, Analytics, Workspace |
-| `marketplace` | 12 | Multi-role Auth, Vendor Onboarding, Listings, Search, Orders, Split Payments, Reviews, Admin, Messaging, Commission, Disputes, Vendor Analytics |
-| `healthcare` | 12 | Auth, Patient Management, Appointments, EHR, Provider Management, Prescriptions, Billing, Admin, HIPAA, Notifications, Telemedicine, Care Coordination |
-| `fintech` | 12 | Auth (KYC), Accounts, Transactions, Payments, Wallet, History, Admin, Compliance, Security, Notifications, Reconciliation, Disputes |
-| `mobile_app` | 10 | Auth, Push Notifications, Offline Sync, Navigation, Device Features, State Management, IAP, Analytics, Settings, Version Management |
-| `web_app` | 10 | Auth, Responsive Design, Admin Dashboard, API Integration, Search, Data Visualization, Notifications, Settings, File Management, SEO |
-| `ai_ml` | 10 | Auth/API Keys, Data Pipeline, Training Interface, Model Registry, Deployment, Inference API, Monitoring, Dashboard, Dataset Management, Cost Tracking |
-| `blockchain` | 10 | Wallet Integration, Smart Contracts, Auth, Transactions, Token Management, NFT Marketplace, DeFi, Admin, Explorer Integration, Security |
-| `unknown` | 8 | Auth, Admin Dashboard, Database, API Layer, Search, Notifications, Settings, Logging |
+| Domain        | # Modules | Key Modules                                                                                                                                            |
+| ------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ecommerce`   | 12        | Auth, Product Catalog, Cart, Orders, Payments, Admin, Search, Profile, Email, Reviews, Coupons, Shipping                                               |
+| `saas`        | 12        | Auth (SSO/MFA/RBAC), Multi-tenant, Subscriptions, Admin, Users, API Gateway, Audit, Email, Onboarding, Settings, Analytics, Workspace                  |
+| `marketplace` | 12        | Multi-role Auth, Vendor Onboarding, Listings, Search, Orders, Split Payments, Reviews, Admin, Messaging, Commission, Disputes, Vendor Analytics        |
+| `healthcare`  | 12        | Auth, Patient Management, Appointments, EHR, Provider Management, Prescriptions, Billing, Admin, HIPAA, Notifications, Telemedicine, Care Coordination |
+| `fintech`     | 12        | Auth (KYC), Accounts, Transactions, Payments, Wallet, History, Admin, Compliance, Security, Notifications, Reconciliation, Disputes                    |
+| `mobile_app`  | 10        | Auth, Push Notifications, Offline Sync, Navigation, Device Features, State Management, IAP, Analytics, Settings, Version Management                    |
+| `web_app`     | 10        | Auth, Responsive Design, Admin Dashboard, API Integration, Search, Data Visualization, Notifications, Settings, File Management, SEO                   |
+| `ai_ml`       | 10        | Auth/API Keys, Data Pipeline, Training Interface, Model Registry, Deployment, Inference API, Monitoring, Dashboard, Dataset Management, Cost Tracking  |
+| `blockchain`  | 10        | Wallet Integration, Smart Contracts, Auth, Transactions, Token Management, NFT Marketplace, DeFi, Admin, Explorer Integration, Security                |
+| `unknown`     | 8         | Auth, Admin Dashboard, Database, API Layer, Search, Notifications, Settings, Logging                                                                   |
 
 ---
 
@@ -441,6 +461,7 @@ DOMAIN_ALIASES = {
 **Output:** Structured feature list
 
 **Feature Structure:**
+
 ```json
 {
   "name": "User Authentication",
@@ -453,11 +474,13 @@ DOMAIN_ALIASES = {
 **Complexity Levels:** Low, Medium, High
 
 **Complexity Assessment Guidelines:**
+
 - **Low:** Standard CRUD, basic forms, static pages, simple auth
 - **Medium:** Business logic with conditions, third-party APIs, real-time features, role-based access, dashboards with charts
 - **High:** Compliance (HIPAA, PCI-DSS), GPS/tracking, AI/ML, complex algorithms, multi-tenant architecture, offline-first sync
 
 **Domain-Specific Considerations:**
+
 - Healthcare: Patient data handling is HIGH (HIPAA compliance)
 - Fintech: Payment/transaction features are HIGH (PCI, fraud prevention)
 - Marketplace: Multi-party transactions add complexity
@@ -474,6 +497,7 @@ DOMAIN_ALIASES = {
 **Output:** Hours per feature + totals
 
 **Static Base Hours by Complexity:**
+
 ```python
 COMPLEXITY_BASE_HOURS = {
     "low": 28,
@@ -491,6 +515,7 @@ BUFFER_MULTIPLIER = 1.15  # 15% buffer for unforeseen complexity
 ```
 
 **Estimation Formula:**
+
 ```
 final_hours = calibrated_hours × BUFFER_MULTIPLIER × mvp_factor
 ```
@@ -507,9 +532,10 @@ MVP_SIGNALS = [
 ```
 
 **Range Calculation:**
+
 ```python
 min_hours = total_hours * 0.85
-max_hours = total_hours * 1.35
+max_hours = total_hours * 1.15
 ```
 
 ---
@@ -522,12 +548,14 @@ max_hours = total_hours * 1.35
 **Data Source:** Excel files in `app/data/calibration/`
 
 **How it works:**
+
 1. On startup, `CSVCalibrationLoader` reads all Excel files
 2. Extracts feature names and actual hours from historical projects
 3. Aggregates into average hours per normalized feature name
 4. During estimation, fuzzy-matches features to historical data
 
 **Matching Strategy (Priority Order):**
+
 1. **Exact match:** Normalized feature name matches exactly
 2. **Contains match:** One name contains the other as substring
 3. **Token overlap >= 60%:** Jaccard similarity of words
@@ -536,8 +564,9 @@ max_hours = total_hours * 1.35
 Only applies calibration if `sample_size >= 2` (at least 2 historical data points)
 
 **Stopwords Removed During Matching:**
+
 ```python
-STOPWORDS = ["user", "management", "system", "module", "service", 
+STOPWORDS = ["user", "management", "system", "module", "service",
              "and", "&", "the", "a", "an", "for", "with"]
 ```
 
@@ -551,11 +580,13 @@ STOPWORDS = ["user", "management", "system", "module", "service",
 **Purpose:** Load historical project data from Excel files for calibration
 
 **Excel Parsing Strategy:**
+
 1. Primary: `openpyxl` engine
 2. Fallback: `calamine` engine (for files with corrupt/invalid stylesheet XML)
 3. Legacy: `xlrd` engine (for older .xls files)
 
 **Column Detection:**
+
 ```python
 FEATURE_COLUMN_CANDIDATES = ["name", "module name", "feature", "module"]
 TOTAL_HOURS_CANDIDATES = ["total hours", "total", "hours"]
@@ -563,18 +594,20 @@ COMPONENT_HOUR_COLUMNS = ["web mobile", "backend", "wireframe", "visual design"]
 ```
 
 **Skip Row Keywords:**
+
 ```python
-SKIP_ROW_KEYWORDS = ["total", "subtotal", "summary", "grand total", 
+SKIP_ROW_KEYWORDS = ["total", "subtotal", "summary", "grand total",
                     "sub-total", "sub total", "grand-total"]
 ```
 
 **Current Calibration Files (14):**
+
 - Al-Yousuf (Service Providers).xlsx
 - Chanced Web App (2).xlsx
 - Hobbes Health Reference.xlsx
 - Kaizen Tender - Coimisiún na Meán.xlsx
 - Nutralis App_Dev Estimations.xlsx
-- Pink Umbrella _ Phase-1 - Website.xlsx
+- Pink Umbrella \_ Phase-1 - Website.xlsx
 - Rajshree Mobile- P1 (Revised - 27.11.24).xlsx
 - Taout (1).xlsx
 - Tiffynai - Development.xlsx
@@ -594,13 +627,13 @@ SKIP_ROW_KEYWORDS = ["total", "subtotal", "summary", "grand total",
 
 **Static Mapping for Known Domains:**
 
-| Domain | Frontend | Backend | Database | Third-party |
-|--------|----------|---------|----------|-------------|
-| `ecommerce` | React, Next.js, Tailwind | Node.js, Express/NestJS, FastAPI | PostgreSQL, Redis | Stripe, SendGrid, Cloudinary |
-| `saas` | React, TypeScript, Tailwind | Node.js/NestJS, FastAPI | PostgreSQL, Redis | Stripe, Auth0, Segment |
-| `marketplace` | React, Next.js, Tailwind | Node.js, FastAPI | PostgreSQL, MongoDB, Redis | Stripe Connect, Twilio |
-| `healthcare` | React, TypeScript, Material-UI | FastAPI, Node.js | PostgreSQL, Redis | Twilio Video, AWS KMS |
-| `fintech` | React, TypeScript, Material-UI | FastAPI, Node.js | PostgreSQL, Redis | Plaid, Stripe, AWS KMS |
+| Domain        | Frontend                       | Backend                          | Database                   | Third-party                  |
+| ------------- | ------------------------------ | -------------------------------- | -------------------------- | ---------------------------- |
+| `ecommerce`   | React, Next.js, Tailwind       | Node.js, Express/NestJS, FastAPI | PostgreSQL, Redis          | Stripe, SendGrid, Cloudinary |
+| `saas`        | React, TypeScript, Tailwind    | Node.js/NestJS, FastAPI          | PostgreSQL, Redis          | Stripe, Auth0, Segment       |
+| `marketplace` | React, Next.js, Tailwind       | Node.js, FastAPI                 | PostgreSQL, MongoDB, Redis | Stripe Connect, Twilio       |
+| `healthcare`  | React, TypeScript, Material-UI | FastAPI, Node.js                 | PostgreSQL, Redis          | Twilio Video, AWS KMS        |
+| `fintech`     | React, TypeScript, Material-UI | FastAPI, Node.js                 | PostgreSQL, Redis          | Plaid, Stripe, AWS KMS       |
 
 **Fallback:** For unknown domains, calls LLM to generate custom stack recommendation.
 
@@ -612,16 +645,19 @@ SKIP_ROW_KEYWORDS = ["total", "subtotal", "summary", "grand total",
 **Type:** 100% Static/Deterministic
 
 **Formula:**
+
 ```python
 confidence = (coverage_score * 0.6 + strength_score * 0.4) * 100
 ```
 
 **Coverage Score:**
+
 ```python
 coverage_score = calibrated_features / total_features
 ```
 
 **Strength Score:**
+
 ```python
 strength_score = features_with_sample_size_gte_3 / total_features
 ```
@@ -639,6 +675,7 @@ strength_score = features_with_sample_size_gte_3 / total_features
 **Output:** Client-ready proposal
 
 **Generated Sections:**
+
 - Executive summary (2-3 sentences)
 - Scope of work (3-4 sentences)
 - Deliverables (5-7 items)
@@ -648,6 +685,7 @@ strength_score = features_with_sample_size_gte_3 / total_features
 - Mitigation strategies (3-4 items)
 
 **LLM Settings:**
+
 - Temperature: 0.3 (slightly creative for natural text)
 - Max tokens: 1000
 
@@ -662,6 +700,7 @@ strength_score = features_with_sample_size_gte_3 / total_features
 **Output:** Phase breakdown, team recommendation, complexity totals
 
 **Static Phase Ratios:**
+
 ```python
 PHASE_RATIOS = {
     "frontend": 0.40,  # 40% of hours
@@ -673,6 +712,7 @@ PHASE_RATIOS = {
 
 **Complexity Breakdown:**
 Hours are now aggregated by complexity level (High, Medium, Low) instead of category:
+
 ```python
 complexity_totals = {
     "High": 280.0,    # Hours for high complexity features
@@ -682,6 +722,7 @@ complexity_totals = {
 ```
 
 **Team Calculation:**
+
 ```python
 HOURS_PER_WEEK = 40
 
@@ -705,11 +746,13 @@ pm_count = 1
 **Output:** Updated feature list
 
 **Operations:**
+
 - **ADD:** Add new features (e.g., "Add analytics dashboard")
 - **REMOVE:** Remove features (e.g., "Remove social login")
 - **MODIFY:** Change complexity/description (e.g., "Make admin dashboard more complex")
 
 **Behavior:**
+
 - Preserves existing features unless explicitly asked to remove/modify
 - Uses same category and complexity standards as original features
 
@@ -719,34 +762,36 @@ pm_count = 1
 
 **File:** `app/main.py`
 
-| Endpoint | Method | Content-Type | Description |
-|----------|--------|--------------|-------------|
-| `/health` | GET | - | Health check (pipeline + database status) |
-| `/auth/login` | POST | `application/json` | Authenticate user, return JWT token |
-| `/estimate` | POST | `application/json` | Estimation from manual input (JWT required) |
-| `/estimate` | POST | `multipart/form-data` | Estimation with optional PRD file (JWT required) |
-| `/modify` | POST | `application/json` | Modify features and re-estimate |
+| Endpoint      | Method | Content-Type          | Description                                      |
+| ------------- | ------ | --------------------- | ------------------------------------------------ |
+| `/health`     | GET    | -                     | Health check (pipeline + database status)        |
+| `/auth/login` | POST   | `application/json`    | Authenticate user, return JWT token              |
+| `/estimate`   | POST   | `application/json`    | Estimation from manual input (JWT required)      |
+| `/estimate`   | POST   | `multipart/form-data` | Estimation with optional PRD file (JWT required) |
+| `/modify`     | POST   | `application/json`    | Modify features and re-estimate                  |
 
 ### `/auth/login` Endpoint (NEW)
 
 **Request:**
+
 ```json
 {
-    "email": "admin@geekyants.com",
-    "password": "Test@123"
+  "email": "admin@geekyants.com",
+  "password": "Test@123"
 }
 ```
 
 **Response:**
+
 ```json
 {
-    "access_token": "eyJhbGciOiJIUzI1NiIs...",
-    "token_type": "bearer",
-    "user": {
-        "id": "uuid",
-        "email": "admin@geekyants.com",
-        "created_at": "2026-02-27T..."
-    }
+  "access_token": "eyJhbGciOiJIUzI1NiIs...",
+  "token_type": "bearer",
+  "user": {
+    "id": "uuid",
+    "email": "admin@geekyants.com",
+    "created_at": "2026-02-27T..."
+  }
 }
 ```
 
@@ -757,20 +802,23 @@ pm_count = 1
 Supports **two content types** and **four input modes** (manual-only, file-only, hybrid, re-estimation):
 
 **JSON (application/json):**
+
 ```json
 {
-    "additional_details": "Build an e-commerce platform...",
-    "build_options": ["mobile", "web", "admin"],
-    "additional_context": "Focus on mobile users",
-    "preferred_tech_stack": ["React", "Node.js"],
-    "timeline_constraint": "3 months",
-    "project_id": "uuid-of-existing-project"
+  "additional_details": "Build an e-commerce platform...",
+  "build_options": ["mobile", "web", "admin"],
+  "additional_context": "Focus on mobile users",
+  "preferred_tech_stack": ["React", "Node.js"],
+  "timeline_constraint": "3 months",
+  "project_id": "uuid-of-existing-project"
 }
 ```
+
 - At least one of `additional_details` (min 10 chars) or a file is required; for JSON-only, `additional_details` is required.
 - `project_id` is optional - if provided, fetches stored data from that project as defaults.
 
 **Multipart (multipart/form-data):**
+
 ```
 file: <PRD.pdf | PRD.docx | PRD.xlsx>   (optional)
 additional_details: "Optional manual description"
@@ -782,6 +830,7 @@ project_id: "uuid-of-existing-project" (optional)
 ```
 
 **Input modes:**
+
 - Both `additional_details` (min 10 chars) and `file` → `hybrid`
 - Only `file` → `file_only`
 - Only `additional_details` → `manual_only`
@@ -789,48 +838,53 @@ project_id: "uuid-of-existing-project" (optional)
 
 **Re-estimation with project_id:**
 When `project_id` is provided:
+
 1. Fetches stored `additional_details`, `build_options`, `timeline_constraint` from `projects` table
 2. Fetches stored `extracted_text` from `documents` table (if document exists)
 3. Uses stored values as defaults - new inputs override stored values
 4. Runs full pipeline with combined context
 
 **Behaviour:**
+
 - Parses file (PDF/DOCX/XLSX/XLS) with document parser; applies LLM cleanup when extraction quality is poor.
 - Fuses manual + extracted text via Input Fusion, runs full pipeline, returns `FinalPipelineResponse`.
 - Passes `build_options` and `timeline_constraint` through the pipeline for context-aware processing.
 - After success, inserts a row into `projects` (user_id, additional_details, build_options, timeline_constraint) and, if a file was uploaded, a row into `documents` (user_id, project_id, filename, file_type, extracted_text).
 
 **Response structure (`FinalPipelineResponse`):**
+
 - `request_id` (str), `domain_detection` (detected_domain, confidence, secondary_domains, reasoning), `estimation` (total_hours, min_hours, max_hours, features, overall_complexity, confidence_score, assumptions), `tech_stack` (frontend, backend, database, infrastructure, third_party_services, justification as nested dicts or lists), `proposal` (executive_summary, scope_of_work, deliverables, timeline_weeks, team_composition, risks, mitigation_strategies), `planning` (phase_split, team_recommendation, complexity_breakdown), `metadata`.
 - Each feature in `estimation.features` has: `name`, `complexity`, `total_hours`, `subfeatures` (list of `{ name, effort }`), `confidence_score`.
 
 **Download Proposal & Proposal Generation:**
+
 - `/proposal/pdf/{request_id}`, `/proposal/html/{request_id}`, and `/proposal/google-doc/{request_id}` use the cached estimation result for that `request_id` (same structure as above). Context for the proposal template is built via `_build_proposal_context()`: features are normalized (description from subfeature names, total_hours for hours), and tech_stack layers are flattened to lists for display in the HTML template.
 
 ### `/health` Endpoint
 
 **Response:**
+
 ```json
 {
-    "status": "healthy",
-    "pipeline_initialized": true,
-    "database_connected": true
+  "status": "healthy",
+  "pipeline_initialized": true,
+  "database_connected": true
 }
 ```
 
 **Status Values:**
+
 - `healthy` - All systems operational
 - `degraded` - Database connection failed
 
 ### `/modify` Endpoint
 
 **Request:**
+
 ```json
 {
-    "current_features": [
-        {"name": "User Auth", "complexity": "Medium"}
-    ],
-    "instruction": "Add analytics dashboard"
+  "current_features": [{ "name": "User Auth", "complexity": "Medium" }],
+  "instruction": "Add analytics dashboard"
 }
 ```
 
@@ -892,6 +946,7 @@ CREATE TABLE projects (
 ```
 
 **Key Points:**
+
 - One project row per estimate; holds user input (additional_details, build_options, timeline_constraint).
 - `build_options`: User's selections as Postgres text array.
 
@@ -913,6 +968,7 @@ CREATE TABLE documents (
 ```
 
 **Key Points:**
+
 - `project_id`: Links to the project row created for that estimate.
 - `extracted_text`: LLM-cleaned (or raw) text from the document parser.
 
@@ -923,6 +979,7 @@ CREATE TABLE documents (
 ### 1. Domain Templates (`config/domain_templates.py`)
 
 Static dictionary mapping domains to required modules:
+
 ```python
 DOMAIN_TEMPLATES = {
     "ecommerce": [...],  # 10 modules
@@ -936,6 +993,7 @@ DOMAIN_TEMPLATES = {
 ### 2. Tech Stack Mappings (`agents/tech_stack_agent.py`)
 
 Static dictionary mapping domains to recommended tech stacks:
+
 ```python
 DOMAIN_STACK_MAPPING = {
     "ecommerce": {"frontend": [...], "backend": [...], ...},
@@ -990,6 +1048,7 @@ python-jose[cryptography]==3.3.0
 ```
 
 **Key Libraries:**
+
 - **FastAPI:** Web framework with multipart/form-data support
 - **httpx:** Async HTTP client for OpenRouter API calls
 - **pdfplumber:** PDF text extraction with table support (replaces pypdf)
@@ -1053,4 +1112,4 @@ JWT_SECRET_KEY=your-secret-key  # Required for JWT token signing (change in prod
 
 ---
 
-*Last updated: February 28, 2026 - Smart Template Engine v2.0 + Feature Structuring v2.0 (complexity-based)*
+_Last updated: February 28, 2026 - Smart Template Engine v2.0 + Feature Structuring v2.0 (complexity-based)_

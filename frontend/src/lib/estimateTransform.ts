@@ -377,14 +377,23 @@ export function transformEstimateResponse(data: any): TransformEstimateResult {
     };
 
     const proposal: ProposalData = {
+        abstract: proposalRaw.abstract || "",
         executiveSummary: proposalRaw.executive_summary || "",
         scopeOfWork: proposalRaw.scope_of_work || "",
         deliverables: Array.isArray(proposalRaw.deliverables)
             ? proposalRaw.deliverables
             : [],
+        projectTimeline: Array.isArray(proposalRaw.project_timeline)
+            ? proposalRaw.project_timeline
+            : [],
         risks: Array.isArray(proposalRaw.risks) ? proposalRaw.risks : [],
-        assumptions: Array.isArray(estimation.assumptions)
-            ? estimation.assumptions
+        assumptions: Array.isArray(proposalRaw.assumptions)
+            ? proposalRaw.assumptions
+            : Array.isArray(estimation.assumptions)
+                ? estimation.assumptions
+                : [],
+        clientDependencies: Array.isArray(proposalRaw.client_dependencies)
+            ? proposalRaw.client_dependencies
             : [],
         minHours: Number(estimation.min_hours) || 0,
         maxHours: Number(estimation.max_hours) || 0,
