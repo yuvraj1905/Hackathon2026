@@ -766,9 +766,39 @@ pm_count = 1
 | ------------- | ------ | --------------------- | ------------------------------------------------ |
 | `/health`     | GET    | -                     | Health check (pipeline + database status)        |
 | `/auth/login` | POST   | `application/json`    | Authenticate user, return JWT token              |
+| `/projects`   | GET    | -                     | List projects for current user (JWT required)    |
 | `/estimate`   | POST   | `application/json`    | Estimation from manual input (JWT required)      |
 | `/estimate`   | POST   | `multipart/form-data` | Estimation with optional PRD file (JWT required) |
 | `/modify`     | POST   | `application/json`    | Modify features and re-estimate                  |
+
+### `GET /projects` Endpoint
+
+**Requires JWT authentication** (Authorization: Bearer &lt;token&gt;).
+
+Returns all projects for the authenticated user, ordered by `created_at` descending. Used by the frontend Proposals tab to list projects from the database instead of session storage.
+
+**Response:** Array of project list items:
+
+```json
+[
+  {
+    "id": "uuid",
+    "request_id": "uuid",
+    "title": "Project title from metadata or additional_details",
+    "domain": "ecommerce",
+    "totalHours": 912.3,
+    "createdAt": "2026-02-28T12:00:00.000Z"
+  }
+]
+```
+
+- `id` / `request_id`: Project UUID; use for `/proposal/pdf/{id}`, `/proposal/html/{id}`, and Google Doc links.
+- `title`: From `estimate_data.metadata.project_title` or truncated `additional_details`, or `"New proposal"`.
+- `domain`: From `estimate_data.domain_detection.detected_domain`, or `"unknown"` if no estimate_data.
+- `totalHours`: From `estimate_data.estimation.total_hours`, or `0` if missing.
+- `createdAt`: ISO 8601 timestamp from `projects.created_at`.
+
+**Behaviour:** Selects `id`, `additional_details`, `estimate_data`, `created_at` from `projects` where `user_id` = current user, ordered by `created_at DESC`. Each row is mapped to the response shape above; rows without `estimate_data` (e.g. legacy) still appear with derived title and domain `"unknown"`.
 
 ### `/auth/login` Endpoint (NEW)
 

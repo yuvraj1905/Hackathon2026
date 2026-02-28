@@ -126,6 +126,18 @@ class PlanningResult(BaseModel):
     complexity_breakdown: Dict[str, float] = Field(..., description="Hours by complexity level (High, Medium, Low)")
 
 
+class ProjectListItem(BaseModel):
+    """One project row for list endpoints (e.g. GET /projects). Matches frontend StoredProposalSummary."""
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    id: str = Field(..., description="Project UUID")
+    request_id: str = Field(..., description="Same as id; use for PDF/Doc URLs")
+    title: str = Field(..., description="Display title from metadata or additional_details")
+    domain: str = Field(..., description="Detected domain (e.g. ecommerce, fintech)")
+    totalHours: float = Field(..., ge=0, description="Total estimated hours")
+    createdAt: str = Field(..., description="ISO 8601 created_at from DB")
+
+
 class FinalPipelineResponse(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
     

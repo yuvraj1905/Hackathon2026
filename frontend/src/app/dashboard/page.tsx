@@ -32,7 +32,7 @@ import { ProposalsSection } from "../../components/ProposalsSection";
 import {
   appendProposalToHistory,
   fetchEstimate,
-  loadProposalsHistory,
+  fetchProjects,
   setLastEstimateRaw,
   takeLastEstimateRaw,
   type StoredProposalSummary,
@@ -56,6 +56,8 @@ export default function DashboardPage() {
   const [proposalsHistory, setProposalsHistory] = useState<
     StoredProposalSummary[]
   >([]);
+  const [proposalsLoading, setProposalsLoading] = useState(true);
+  const [proposalsError, setProposalsError] = useState<string | null>(null);
   const [rawApiResponse, setRawApiResponse] = useState<any>(null);
   const [taskExpanded, setTaskExpanded] = useState<Record<string, boolean>>(
     {},
@@ -74,7 +76,25 @@ export default function DashboardPage() {
   const { toast } = useToast();
 
   useEffect(() => {
-    setProposalsHistory(loadProposalsHistory());
+    let cancelled = false;
+    setProposalsLoading(true);
+    setProposalsError(null);
+    fetchProjects()
+      .then((list) => {
+        if (!cancelled) setProposalsHistory(list);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setProposalsError(err?.message ?? "Failed to load proposals");
+          setProposalsHistory([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setProposalsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -147,6 +167,8 @@ export default function DashboardPage() {
       setShowResults(true);
       setActiveTab("estimates");
       toast({ title: "Estimation ready!" });
+      // Refetch projects so the new one appears in the Proposals tab
+      fetchProjects().then(setProposalsHistory).catch(() => {});
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "";
       const isNet = msg === "Failed to fetch" || msg.includes("NetworkError") || msg.includes("Load failed");
@@ -594,6 +616,8 @@ export default function DashboardPage() {
                 totalHours: summaryData.totalHours,
               }}
               proposals={proposalsHistory}
+              loading={proposalsLoading}
+              error={proposalsError}
             />
           </TabsContent>
 

@@ -28,12 +28,16 @@ interface ProposalsSectionProps {
   proposalData: ProposalData | null;
   summaryData: { timeline: string; totalHours: number };
   proposals: StoredProposalSummary[];
+  loading?: boolean;
+  error?: string | null;
 }
 
 export function ProposalsSection({
   proposalData,
   summaryData,
   proposals,
+  loading = false,
+  error = null,
 }: ProposalsSectionProps) {
   const [gdocLoading, setGdocLoading] = useState(false);
   const { toast } = useToast();
@@ -89,6 +93,26 @@ export function ProposalsSection({
       setGdocLoading(false);
     }
   };
+
+  if (loading) {
+    return (
+      <div className="card-spotlight rounded-2xl p-12 text-center flex flex-col items-center justify-center gap-4">
+        <div className="mx-auto mb-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-muted/40">
+          <span className="inline-block h-7 w-7 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        </div>
+        <p className="text-sm text-muted-foreground">Loading proposals…</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="card-spotlight rounded-2xl p-12 text-center flex flex-col items-center justify-center gap-4">
+        <AlertCircle className="h-10 w-10 text-destructive" />
+        <p className="text-sm text-muted-foreground">{error}</p>
+      </div>
+    );
+  }
 
   if (!proposals.length) {
     return (
@@ -333,12 +357,6 @@ export function ProposalsSection({
                   </div>
                 </div>
               </div>
-
-              <Link href="/proposals/new">
-                <Button variant="outline" size="sm" className="shrink-0">
-                  Generate Proposal
-                </Button>
-              </Link>
 
               {/* ── Action buttons ───────────────────────────────────────── */}
               <div className="ml-auto flex shrink-0 items-center gap-2">
