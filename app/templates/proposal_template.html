@@ -286,14 +286,22 @@
         {% for feature in features %}
         <tr>
           <td><strong>{{ loop.index }}. {{ feature.name }}</strong></td>
-          <td>{{ feature.description }}</td>
+          <td>
+            {% if feature.description %}
+              {{ feature.description }}
+            {% elif feature.subfeatures %}
+              {{ feature.subfeatures | map(attribute='name') | join(', ') }}
+            {% else %}
+              —
+            {% endif %}
+          </td>
           <td>
             <span class="badge badge-{{ feature.complexity }}">
               {{ feature.complexity | replace("_", " ") | title }}
             </span>
           </td>
           <td style="text-align:right; font-weight:600;">
-            {{ feature.estimated_hours | round(0) | int }}
+            {{ (feature.total_hours | default(feature.estimated_hours) | round(0) | int) }}
           </td>
         </tr>
         {% endfor %}

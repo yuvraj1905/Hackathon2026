@@ -147,11 +147,12 @@ async def estimate_project(
     """
     Execute full estimation pipeline for a project.
     
-    Requires JWT authentication. Supports two input modes:
+    Requires JWT authentication. Supports three input modes:
     1. file upload: Upload a PRD document via multipart/form-data (PDF/DOCX/XLSX/XLS)
     2. manual input: Provide additional_details text directly (JSON or form-data)
+    3. re-estimation: Provide project_id to re-run estimation with stored data
     
-    Both modes can be combined (hybrid mode).
+    All modes can be combined (hybrid mode).
     
     **multipart/form-data fields:**
     - file: PRD document (optional, PDF/DOCX/XLSX/XLS)
@@ -160,6 +161,7 @@ async def estimate_project(
     - timeline_constraint: Timeline string e.g. "3 months" (optional)
     - additional_context: Extra context (optional)
     - preferred_tech_stack: Comma-separated techs e.g. "React, Node.js" (optional)
+    - project_id: UUID of existing project for re-estimation (optional)
     
     **JSON body fields:**
     - additional_details: Manual project description (required, min 10 chars)
@@ -167,6 +169,7 @@ async def estimate_project(
     - timeline_constraint: Timeline string (optional)
     - additional_context: Extra context (optional)
     - preferred_tech_stack: Array of strings (optional)
+    - project_id: UUID of existing project for re-estimation (optional)
     
     Args:
         request: Project request with description and/or file
@@ -186,6 +189,7 @@ async def estimate_project(
         build_options = []
         uploaded_filename = None
         uploaded_file_extension = None
+        project_id = None
 
         if "application/json" in content_type:
             body = await request.json()
@@ -196,6 +200,7 @@ async def estimate_project(
             additional_context = json_payload.additional_context
             preferred_tech_stack = json_payload.preferred_tech_stack
             timeline_constraint = json_payload.timeline_constraint
+            project_id = body.get("project_id")
 
         elif "multipart/form-data" in content_type:
             form = await request.form()
@@ -276,11 +281,80 @@ async def estimate_project(
                 else None
             )
 
+            project_id_raw = form.get("project_id")
+            project_id = (
+                str(project_id_raw).strip()
+                if project_id_raw is not None and str(project_id_raw).strip()
+                else None
+            )
+
         else:
             raise HTTPException(
                 status_code=415,
                 detail="Unsupported Content-Type. Use application/json or multipart/form-data.",
             )
+
+        # If project_id is provided, fetch stored project data as defaults
+        if project_id:
+            try:
+                import uuid as uuid_module
+                project_uuid = uuid_module.UUID(project_id)
+                
+                async with db.pool.acquire() as conn:
+                    project = await conn.fetchrow(
+                        """
+                        SELECT additional_details, build_options, timeline_constraint 
+                        FROM projects 
+                        WHERE id = $1 AND user_id = $2
+                        """,
+                        project_uuid,
+                        current_user.id,
+                    )
+                    
+                    if not project:
+                        raise HTTPException(
+                            status_code=404,
+                            detail="Project not found or access denied",
+                        )
+                    
+                    # Use stored values as defaults (new inputs override stored)
+                    if not additional_details and project["additional_details"]:
+                        additional_details = project["additional_details"]
+                        logger.info(f"Using stored additional_details for project {project_id}")
+                    
+                    if not build_options and project["build_options"]:
+                        build_options = list(project["build_options"])
+                        logger.info(f"Using stored build_options for project {project_id}")
+                    
+                    if not timeline_constraint and project["timeline_constraint"]:
+                        timeline_constraint = project["timeline_constraint"]
+                        logger.info(f"Using stored timeline_constraint for project {project_id}")
+                    
+                    # Fetch stored extracted_text from documents table
+                    doc = await conn.fetchrow(
+                        """
+                        SELECT extracted_text 
+                        FROM documents 
+                        WHERE project_id = $1
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                        """,
+                        project_uuid,
+                    )
+                    
+                    if doc and doc["extracted_text"] and not extracted_text:
+                        extracted_text = doc["extracted_text"]
+                        logger.info(f"Using stored extracted_text for project {project_id}")
+                        
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid project_id format. Must be a valid UUID.",
+                )
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.warning(f"Failed to fetch project data for re-estimation: {e}")
 
         has_manual = bool((additional_details or "").strip()) and len((additional_details or "").strip()) >= 10
         has_file = bool((extracted_text or "").strip())
@@ -312,6 +386,9 @@ async def estimate_project(
             "additional_context": additional_context,
             "preferred_tech_stack": preferred_tech_stack,
             "build_options": build_options,
+            "timeline_constraint": timeline_constraint,
+            "additional_details": additional_details or "",
+            "extracted_text": extracted_text or "",
         })
 
         try:
@@ -454,12 +531,48 @@ async def modify_scope(request: ModificationRequest) -> ModificationResponse:
         raise HTTPException(status_code=500, detail="Internal modification error")
 
 
+def _flatten_tech_layer(value: Any) -> list[str]:
+    """
+    Convert a tech_stack layer (list or nested dict) to a list of display strings.
+    Supports the estimate API response structure: backend/frontend as dicts,
+    database with primary/cache/search/secondary, infrastructure with cloud_provider, etc.
+    """
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(v) for v in value if v is not None and str(v).strip()]
+    if not isinstance(value, dict):
+        return [str(value)] if str(value).strip() else []
+    skip_keys = {"justification", "type", "recommendations", "best_for", "services"}
+    out: list[str] = []
+    for k, v in value.items():
+        if v is None or k in skip_keys:
+            continue
+        if isinstance(v, dict):
+            name = v.get("name") if isinstance(v.get("name"), str) else None
+            if name:
+                out.append(name)
+            elif k in ("primary", "secondary", "cache", "search") and isinstance(v, dict):
+                if v.get("name"):
+                    out.append(str(v["name"]))
+            continue
+        if isinstance(v, list):
+            out.extend(str(x) for x in v if x is not None and str(x).strip())
+            continue
+        s = str(v).strip()
+        if s:
+            out.append(s)
+    return out
+
+
 def _build_proposal_context(data: dict[str, Any]) -> dict[str, Any]:
     """
     Build the Jinja2 template context from a cached estimation result dict.
 
-    Args:
-        data: Raw pipeline result dict (same structure as FinalPipelineResponse).
+    Expects the estimate API response structure: request_id, domain_detection,
+    estimation (total_hours, min_hours, max_hours, features with name, complexity,
+    total_hours, subfeatures, confidence_score), tech_stack (nested dicts),
+    proposal, planning, metadata.
 
     Returns:
         Context dict ready for render_proposal().
@@ -476,6 +589,23 @@ def _build_proposal_context(data: dict[str, Any]) -> dict[str, Any]:
         .title()
     )
 
+    # Features: new structure has name, complexity, total_hours, subfeatures, confidence_score.
+    # Template uses total_hours for hours; description can be derived from subfeature names.
+    raw_features = estimation.get("features", [])
+    features = []
+    for f in raw_features:
+        subfeatures = f.get("subfeatures", [])
+        description = ", ".join(s.get("name", "") for s in subfeatures if s.get("name")) or f.get("name", "")
+        features.append({
+            "name": f.get("name", ""),
+            "description": description,
+            "complexity": (f.get("complexity", "medium") or "medium").lower().replace(" ", "_"),
+            "total_hours": f.get("total_hours", 0.0),
+            "estimated_hours": f.get("total_hours", 0.0),
+            "subfeatures": subfeatures,
+            "confidence_score": f.get("confidence_score", 0),
+        })
+
     return {
         "request_id": data.get("request_id", "N/A"),
         "project_title": f"{detected_domain} Platform",
@@ -486,26 +616,24 @@ def _build_proposal_context(data: dict[str, Any]) -> dict[str, Any]:
         "deliverables": proposal.get("deliverables", []),
         "risks": proposal.get("risks", []),
         "mitigation_strategies": proposal.get("mitigation_strategies", []),
-        "features": estimation.get("features", []),
+        "features": features,
         "total_hours": estimation.get("total_hours", 0),
         "min_hours": estimation.get("min_hours", 0),
         "max_hours": estimation.get("max_hours", 0),
         "confidence_score": estimation.get("confidence_score", 0),
         "assumptions": estimation.get("assumptions", []),
-        "tech_frontend": tech_stack.get("frontend", []),
-        "tech_backend": tech_stack.get("backend", []),
-        "tech_database": tech_stack.get("database", []),
-        "tech_infrastructure": tech_stack.get("infrastructure", []),
-        "tech_third_party": tech_stack.get("third_party_services", []),
+        "tech_frontend": _flatten_tech_layer(tech_stack.get("frontend")),
+        "tech_backend": _flatten_tech_layer(tech_stack.get("backend")),
+        "tech_database": _flatten_tech_layer(tech_stack.get("database")),
+        "tech_infrastructure": _flatten_tech_layer(tech_stack.get("infrastructure")),
+        "tech_third_party": _flatten_tech_layer(tech_stack.get("third_party_services")),
         "tech_justification": tech_stack.get("justification", ""),
         "team_composition": proposal.get(
             "team_composition", planning.get("team_recommendation", {})
         ),
-        "timeline_weeks": proposal.get(
-            "timeline_weeks", planning.get("timeline_weeks", "TBD")
-        ),
+        "timeline_weeks": proposal.get("timeline_weeks", "TBD"),
         "phase_split": planning.get("phase_split", {}),
-        "category_breakdown": planning.get("category_breakdown", {}),
+        "category_breakdown": planning.get("complexity_breakdown", {}),
     }
 
 

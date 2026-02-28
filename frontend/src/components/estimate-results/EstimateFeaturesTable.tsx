@@ -57,8 +57,8 @@ export function EstimateFeaturesTable({
             <thead>
               <tr>
                 <th className="w-10 text-center">#</th>
-                <th className="min-w-[150px]">Module</th>
                 <th className="min-w-[200px]">Feature</th>
+                <th className="min-w-[200px]">Subfeature</th>
                 <th className="w-20 text-center">FE hrs</th>
                 <th className="w-20 text-center">BE hrs</th>
                 <th className="w-24 text-center">Integ.</th>
@@ -74,7 +74,7 @@ export function EstimateFeaturesTable({
                   <Fragment key={`mod-${mod.id}`}>
                     <tr className="module-row cursor-pointer" onClick={() => toggleModule(mod.id)}>
                       <td className="text-center text-xs font-mono text-muted-foreground">{mod.id}</td>
-                      <td colSpan={2}>
+                      <td>
                         <div className="flex items-center gap-2">
                           {mod.expanded ? (
                             <ChevronDown className="h-4 w-4 shrink-0 text-primary/60" />
@@ -82,10 +82,10 @@ export function EstimateFeaturesTable({
                             <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
                           )}
                           <span className="font-bold">{mod.name}</span>
-                          <span className="rounded-full bg-muted/30 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                            {mod.tasks.length} features
-                          </span>
                         </div>
+                      </td>
+                      <td className="text-muted-foreground text-sm">
+                        {mod.tasks.length} features
                       </td>
                       <td className="text-center text-sm font-medium font-mono">{fmtNum(mod.tasks.reduce((a, t) => a + t.frontend, 0))}</td>
                       <td className="text-center text-sm font-medium font-mono">{fmtNum(mod.tasks.reduce((a, t) => a + t.backend, 0))}</td>
@@ -110,36 +110,40 @@ export function EstimateFeaturesTable({
                         <Fragment key={task.id}>
                           <tr className="transition-colors hover:bg-primary/3">
                             <td className="text-center text-xs font-mono text-muted-foreground">{offset + tIdx + 1}</td>
-                            <td className="pl-6 text-xs text-muted-foreground">
+                            <td className="pl-6">
                               <div className="flex items-center gap-1.5">
-                                {mod.name}
                                 {task.complexity && (
-                                  <span className={`${complexityBadge(task.complexity)} hidden md:inline`}>
+                                  <span className={`${complexityBadge(task.complexity)} hidden md:inline shrink-0`}>
                                     {task.complexity.replace("_", " ")}
                                   </span>
                                 )}
+                                <EditableNameCell value={task.name} onChange={(v) => updateTaskName(mod.id, task.id, v)} />
                               </div>
                             </td>
                             <td>
                               <div className="flex items-center gap-1.5">
                                 {task.children?.length ? (
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      toggleTask(task.id);
-                                    }}
-                                    className="shrink-0 rounded p-0.5 hover:bg-muted/30"
-                                  >
-                                    {taskExpanded[task.id] ? (
-                                      <ChevronDown className="h-3.5 w-3.5" />
-                                    ) : (
-                                      <ChevronRight className="h-3.5 w-3.5" />
-                                    )}
-                                  </button>
+                                  <>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        toggleTask(task.id);
+                                      }}
+                                      className="shrink-0 rounded p-0.5 hover:bg-muted/30"
+                                    >
+                                      {taskExpanded[task.id] ? (
+                                        <ChevronDown className="h-3.5 w-3.5" />
+                                      ) : (
+                                        <ChevronRight className="h-3.5 w-3.5" />
+                                      )}
+                                    </button>
+                                    <span className="text-muted-foreground text-sm">
+                                      {task.children.length} subfeature{task.children.length !== 1 ? "s" : ""}
+                                    </span>
+                                  </>
                                 ) : (
-                                  <span className="w-3.5 shrink-0" />
+                                  <span className="text-muted-foreground/60">—</span>
                                 )}
-                                <EditableNameCell value={task.name} onChange={(v) => updateTaskName(mod.id, task.id, v)} />
                               </div>
                             </td>
                             <td className="text-center">
@@ -178,7 +182,7 @@ export function EstimateFeaturesTable({
                             task.children?.map((child) => (
                               <tr key={child.id} className="subtask-row">
                                 <td />
-                                <td />
+                                <td className="pl-8 text-muted-foreground text-sm" />
                                 <td className="pl-10 text-sm">
                                   <div className="flex items-center gap-1.5">
                                     <span className="text-xs text-muted-foreground/40">↳</span>

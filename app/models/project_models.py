@@ -30,14 +30,20 @@ class ComplexityLevel(str, Enum):
     VERY_HIGH = "very_high"
 
 
+class SubFeature(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+    
+    name: str = Field(..., description="Subfeature name")
+    effort: float = Field(..., ge=0, description="Estimated effort in hours")
+
+
 class Feature(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
     
     name: str = Field(..., description="Feature name")
-    description: str = Field(..., description="Feature description")
     complexity: ComplexityLevel = Field(..., description="Estimated complexity")
-    estimated_hours: float = Field(..., ge=0, description="Estimated hours")
-    dependencies: List[str] = Field(default_factory=list, description="Dependent features")
+    total_hours: float = Field(..., ge=0, description="Total estimated hours (sum of subfeatures)")
+    subfeatures: List[SubFeature] = Field(default_factory=list, description="Granular subfeatures with effort")
     confidence_score: float = Field(..., ge=0, le=1, description="Confidence in estimate")
 
 
@@ -105,7 +111,7 @@ class PlanningResult(BaseModel):
     
     phase_split: Dict[str, float] = Field(..., description="Hours split by phase")
     team_recommendation: Dict[str, int] = Field(..., description="Recommended team composition")
-    category_breakdown: Dict[str, float] = Field(..., description="Hours by category")
+    complexity_breakdown: Dict[str, float] = Field(..., description="Hours by complexity level (High, Medium, Low)")
 
 
 class FinalPipelineResponse(BaseModel):
