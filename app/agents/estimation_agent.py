@@ -20,6 +20,13 @@ class EstimationAgent(BaseAgent):
         "high": 64
     }
     
+    # Per-subfeature base hours by parent complexity
+    SUBFEATURE_BASE_HOURS = {
+        "low": 8,
+        "medium": 16,
+        "high": 28
+    }
+    
     BUFFER_MULTIPLIER = 1.15
     
     def __init__(self, calibration_engine: CalibrationEngine, **kwargs):
@@ -28,10 +35,10 @@ class EstimationAgent(BaseAgent):
     
     async def execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Estimate hours for each feature with calibration and buffer.
+        Estimate hours for each feature at the subfeature level.
         
         Args:
-            input_data: Dict with 'features' key (list of feature dicts)
+            input_data: Dict with 'features' key (list of feature dicts with subfeatures)
             
         Returns:
             Dict with detailed estimation breakdown
@@ -51,51 +58,92 @@ class EstimationAgent(BaseAgent):
         mvp_factor = self._detect_mvp_scope(original_description, features)
         
         estimated_features = []
-        total_base_hours = 0.0
+        total_hours = 0.0
         
         for feature in features:
             feature_name = feature.get("name", "")
             complexity = feature.get("complexity", "Medium").lower()
+            subfeatures = feature.get("subfeatures", [])
             
-            base_hours = self.COMPLEXITY_BASE_HOURS.get(complexity, 72)
+            estimated_subfeatures = []
+            feature_total = 0.0
+            feature_calibrated = False
             
-            calibrated_hours = self.calibration_engine.get_calibrated_hours(
-                feature_name, 
-                base_hours
-            )
+            if not subfeatures:
+                subfeatures = [{"name": feature_name}]
             
-            calibration_info = self.calibration_engine.get_calibration_info(feature_name)
-            was_calibrated = calibration_info is not None and calibration_info["sample_size"] >= 2
+            subfeature_base = self.SUBFEATURE_BASE_HOURS.get(complexity, 16)
             
-            if was_calibrated:
-                complexity_floor = self.COMPLEXITY_FLOOR_HOURS.get(complexity, 32)
+            for sf in subfeatures:
+                sf_name = sf.get("name", "")
+                if not sf_name:
+                    continue
                 
-                if calibrated_hours < complexity_floor:
-                    logger.debug(
-                        f"Applied floor to '{feature_name}': "
-                        f"{calibrated_hours:.1f}h → {complexity_floor}h ({complexity} complexity)"
-                    )
-                    calibrated_hours = complexity_floor
+                # Try calibration on the subfeature name
+                calibrated_hours = self.calibration_engine.get_calibrated_hours(
+                    sf_name,
+                    subfeature_base
+                )
+                
+                calibration_info = self.calibration_engine.get_calibration_info(sf_name)
+                sf_was_calibrated = calibration_info is not None and calibration_info["sample_size"] >= 2
+                
+                if sf_was_calibrated:
+                    feature_calibrated = True
+                
+                final_sf_hours = calibrated_hours * self.BUFFER_MULTIPLIER * mvp_factor
+                final_sf_hours = round(final_sf_hours, 1)
+                
+                estimated_subfeatures.append({
+                    "name": sf_name,
+                    "effort": final_sf_hours,
+                    "was_calibrated": sf_was_calibrated
+                })
+                
+                feature_total += final_sf_hours
             
-            final_hours = calibrated_hours * self.BUFFER_MULTIPLIER * mvp_factor
+            # Also try calibration on the parent feature name for a sanity check
+            parent_base = self.COMPLEXITY_BASE_HOURS.get(complexity, 72)
+            parent_calibrated = self.calibration_engine.get_calibrated_hours(
+                feature_name,
+                parent_base
+            )
+            parent_info = self.calibration_engine.get_calibration_info(feature_name)
+            parent_was_calibrated = parent_info is not None and parent_info["sample_size"] >= 2
+            
+            if parent_was_calibrated:
+                feature_calibrated = True
+                # If the parent has strong calibration and subfeature sum is very different,
+                # use parent calibration as a floor
+                parent_calibrated_with_buffer = parent_calibrated * self.BUFFER_MULTIPLIER * mvp_factor
+                complexity_floor = self.COMPLEXITY_FLOOR_HOURS.get(complexity, 32)
+                parent_calibrated_with_buffer = max(parent_calibrated_with_buffer, complexity_floor)
+                
+                if feature_total < parent_calibrated_with_buffer * 0.5:
+                    # Subfeature sum is too low vs calibration — scale up proportionally
+                    if feature_total > 0:
+                        scale = parent_calibrated_with_buffer / feature_total
+                        for sf in estimated_subfeatures:
+                            sf["effort"] = round(sf["effort"] * scale, 1)
+                        feature_total = round(parent_calibrated_with_buffer, 1)
+            
+            feature_total = round(feature_total, 1)
             
             estimated_features.append({
                 "name": feature_name,
-                "category": feature.get("category", "Core"),
                 "complexity": complexity.capitalize(),
-                "base_hours": round(base_hours, 1),
-                "calibrated_hours": round(calibrated_hours, 1),
-                "final_hours": round(final_hours, 1),
-                "was_calibrated": was_calibrated
+                "total_hours": feature_total,
+                "subfeatures": estimated_subfeatures,
+                "was_calibrated": feature_calibrated
             })
             
-            total_base_hours += final_hours
+            total_hours += feature_total
         
-        min_hours = total_base_hours * 0.85
-        max_hours = total_base_hours * 1.35
+        min_hours = total_hours * 0.85
+        max_hours = total_hours * 1.35
         
         return {
-            "total_hours": round(total_base_hours, 1),
+            "total_hours": round(total_hours, 1),
             "min_hours": round(min_hours, 1),
             "max_hours": round(max_hours, 1),
             "features": estimated_features,
@@ -103,16 +151,7 @@ class EstimationAgent(BaseAgent):
         }
     
     def _detect_mvp_scope(self, description: str, features: List[Dict[str, Any]]) -> float:
-        """
-        Detect if project is a small/MVP ecommerce and apply scope reduction.
-        
-        Args:
-            description: Original project description
-            features: List of features
-            
-        Returns:
-            Scope factor (0.75-1.0)
-        """
+        """Detect if project is a small/MVP scope and apply reduction."""
         if len(features) >= 12:
             return 1.0
         
@@ -137,24 +176,16 @@ class EstimationAgent(BaseAgent):
             return 0.85
     
     def _generate_breakdown(self, features: List[Dict[str, Any]]) -> Dict[str, float]:
-        """
-        Generate hours breakdown by category.
-        
-        Args:
-            features: List of estimated features
-            
-        Returns:
-            Dict mapping category to total hours
-        """
+        """Generate hours breakdown by complexity level."""
         breakdown = {}
         
         for feature in features:
-            category = feature.get("category", "Core")
-            hours = feature.get("final_hours", 0.0)
+            complexity = feature.get("complexity", "Medium")
+            hours = feature.get("total_hours", 0.0)
             
-            if category not in breakdown:
-                breakdown[category] = 0.0
+            if complexity not in breakdown:
+                breakdown[complexity] = 0.0
             
-            breakdown[category] += hours
+            breakdown[complexity] += hours
         
         return {k: round(v, 1) for k, v in breakdown.items()}

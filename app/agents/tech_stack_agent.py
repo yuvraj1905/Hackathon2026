@@ -44,6 +44,14 @@ class TechStackAgent(BaseAgent):
             "infrastructure": ["AWS", "Kubernetes", "WAF"],
             "third_party_services": ["Plaid", "Stripe", "Twilio", "AWS KMS"],
             "justification": "Security-first stack with PCI compliance, fraud detection, and real-time transaction processing."
+        },
+        "enterprise": {
+            "frontend": ["React", "TypeScript", "TailwindCSS"],
+            "backend": ["Python/FastAPI", "Node.js/NestJS"],
+            "database": ["PostgreSQL", "Redis"],
+            "infrastructure": ["AWS/GCP", "Docker", "Nginx"],
+            "third_party_services": ["SendGrid", "AWS S3", "Auth0"],
+            "justification": "Scalable enterprise stack with robust data management, secure authentication, and flexible integrations."
         }
     }
     
@@ -92,10 +100,21 @@ class TechStackAgent(BaseAgent):
             messages=messages,
             response_format={"type": "json_object"},
             temperature=0,
-            max_tokens=400
+            max_tokens=1024
         )
         
-        parsed = self.parse_json_response(response)
+        try:
+            parsed = self.parse_json_response(response)
+        except ValueError:
+            # Fallback if response was truncated or malformed
+            return {
+                "frontend": ["React", "TypeScript", "TailwindCSS"],
+                "backend": ["Node.js", "Python/FastAPI"],
+                "database": ["PostgreSQL", "Redis"],
+                "infrastructure": ["AWS", "Docker"],
+                "third_party_services": [],
+                "justification": "Custom stack for project requirements (LLM response incomplete)"
+            }
         
         return {
             "frontend": parsed.get("frontend", ["React", "TypeScript"]),

@@ -23,9 +23,10 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              PROJECT PIPELINE                                    │
+│                              PROJECT PIPELINE v2.0                               │
 │                                                                                 │
 │  Input: Manual Description AND/OR Uploaded PRD (PDF/DOCX/Excel)                 │
+│         + build_options + timeline_constraint + additional_context              │
 │          ↓                                                                      │
 │  ┌─────────────────┐     ┌─────────────────┐                                   │
 │  │ 0. DOCUMENT     │────►│ 0b. INPUT       │                                   │
@@ -36,11 +37,28 @@
 │          └──────────────────────┘                                               │
 │                    ↓                                                            │
 │  ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐           │
-│  │ 1. DOMAIN       │────►│ 2. TEMPLATE     │────►│ 3. FEATURE      │           │
-│  │    DETECTION    │     │    EXPANDER     │     │    STRUCTURING  │           │
-│  │    (LLM)        │     │    (STATIC)     │     │    (LLM)        │           │
+│  │ 1. DOMAIN       │────►│ 1b. DOMAIN      │────►│ 2. SMART        │           │
+│  │    DETECTION    │     │     ALIAS       │     │    TEMPLATE     │           │
+│  │    (LLM+Context)│     │    RESOLVER     │     │    EXPANDER     │           │
+│  └─────────────────┘     └─────────────────┘     │    (LLM)        │           │
+│                                                  └─────────────────┘           │
+│                                                         │                       │
+│                                          ┌──────────────┴──────────────┐       │
+│                                          ↓                              ↓       │
+│                               ┌─────────────────┐           ┌─────────────────┐│
+│                               │ 2a. MODULE      │           │ 2b. FALLBACK    ││
+│                               │     SELECTOR    │           │     GENERATOR   ││
+│                               │     (LLM)       │           │     (LLM)       ││
+│                               └─────────────────┘           └─────────────────┘│
+│                                          ↓                              ↓       │
+│                                          └──────────────┬───────────────┘       │
+│                                                         ↓                       │
+│  ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐           │
+│  │ 3. FEATURE      │◄────│ (Enriched       │     │                 │           │
+│  │    STRUCTURING  │     │  Description)   │     │                 │           │
+│  │    (LLM)        │     │                 │     │                 │           │
 │  └─────────────────┘     └─────────────────┘     └─────────────────┘           │
-│          ↓                                              ↓                       │
+│          ↓                                                                      │
 │  ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐           │
 │  │ 4. ESTIMATION   │◄────│ CALIBRATION     │     │ 5. TECH STACK   │           │
 │  │    (Static+Cal) │     │ ENGINE (Static) │     │    (Static/LLM) │           │
@@ -132,11 +150,13 @@ else:
 
 ## Component Classification
 
-### LLM-Powered Components (4)
+### LLM-Powered Components (6)
 
 | Component | File | Model | Purpose |
 |-----------|------|-------|---------|
-| Domain Detection Agent | `agents/domain_detection_agent.py` | GPT-4o-mini | Classify project into 14 domains |
+| Domain Detection Agent | `agents/domain_detection_agent.py` | GPT-4o-mini | Classify project into domains with full context |
+| **Smart Template Expander** | `services/template_expander.py` | GPT-4o-mini | Intelligently select relevant modules from templates |
+| **Fallback Module Generator** | `services/fallback_module_generator.py` | GPT-4o-mini | Generate modules for unknown/unmapped domains |
 | Feature Structuring Agent | `agents/feature_structuring_agent.py` | GPT-4o-mini | Extract and normalize features |
 | Proposal Agent | `agents/proposal_agent.py` | GPT-4o-mini | Generate client-ready proposal |
 | Modification Agent | `agents/modification_agent.py` | GPT-4o-mini | Modify scope based on instruction |
@@ -148,7 +168,7 @@ else:
 | **Document Parser** | `services/document_parser.py` | Extract text from PDF/DOCX/Excel PRDs |
 | **Input Fusion Service** | `services/input_fusion_service.py` | Combine manual + extracted inputs |
 | **Database Manager** | `services/database.py` | PostgreSQL connection pool management |
-| Template Expander | `services/template_expander.py` | Append domain-specific required modules |
+| **Domain Alias Resolver** | `config/domain_aliases.py` | Map detected domains to template domains |
 | Estimation Agent | `agents/estimation_agent.py` | Apply base hours + calibration + buffer |
 | Calibration Engine | `services/calibration_engine.py` | Historical data lookup with fuzzy matching |
 | Confidence Engine | `services/confidence_engine.py` | Formula-based confidence calculation |
@@ -268,29 +288,37 @@ pool = await asyncpg.create_pool(
 
 ---
 
-### 1. Domain Detection Agent
+### 1. Domain Detection Agent (UPGRADED)
 
 **File:** `app/agents/domain_detection_agent.py`  
 **Type:** LLM-powered (GPT-4o-mini via OpenRouter)
 
-**Input:** Raw project description (manual or extracted from PRD)  
-**Output:** Domain classification + confidence score
+**Input:** Project description + additional_details + extracted_text + build_options + timeline_constraint + additional_context  
+**Output:** Domain classification + confidence score + reasoning
 
-**Available Domains (14):**
-- `ecommerce` - Online stores, retail platforms
-- `fintech` - Banking, payments, financial services
-- `healthcare` - Medical systems, telemedicine
-- `education` - Learning platforms, course management
-- `saas` - Business software, cloud services
-- `enterprise` - Internal business systems, ERP, CRM
-- `mobile_app` - Mobile-first applications
-- `web_app` - Web applications, browser-based tools
-- `ai_ml` - AI/ML focused products
-- `marketplace` - Multi-vendor platforms
-- `social_media` - Social networks, community platforms
-- `iot` - IoT platforms, device management
-- `blockchain` - Crypto, DeFi, NFT applications
-- `unknown` - Cannot determine
+**Context-Aware Classification:**
+The upgraded agent receives full project context for better classification:
+- `description` - Fused description from manual input + extracted document text
+- `additional_details` - Raw manual requirement text (verbatim)
+- `extracted_text` - Raw parsed document text (verbatim)
+- `build_options` - Platforms to build (mobile, web, admin, backend, design)
+- `timeline_constraint` - Project timeline (passed to later stages)
+- `additional_context` - Any extra context from user
+
+**Available Domains (24):**
+
+| Category | Domains |
+|----------|---------|
+| **Industry-Specific** | `ecommerce`, `fintech`, `healthcare`, `education`, `marketplace`, `logistics`, `insurance`, `enterprise` |
+| **Platform-Type** | `saas`, `iot`, `social_media` |
+| **Generic** | `mobile_app`, `web_app`, `ai_ml`, `blockchain`, `unknown` |
+| **Domain Templates** | `edtech`, `crm`, `hrms`, `real_estate`, `project_management`, `social_media_platform`, `food_delivery`, `travel_booking`, `iot_platform` |
+
+**Classification Rules:**
+1. Always prefer specific industry domain over generic
+2. Multi-vendor/seller → `marketplace` (not `ecommerce`)
+3. Consider what the END USER does, not just the technology
+4. Use keywords: "patients" → `healthcare`, "courses/students" → `education`
 
 **Confidence Normalization:**
 ```python
@@ -300,51 +328,140 @@ normalized = 0.65 + (raw_confidence * 0.30)
 
 ---
 
-### 2. Template Expander
+### 1b. Domain Alias Resolver (NEW)
 
-**File:** `app/services/template_expander.py`  
-**Type:** 100% Static/Deterministic
+**File:** `app/config/domain_aliases.py`  
+**Type:** Static/Deterministic
 
-**Input:** Detected domain + original description  
-**Output:** Enriched description with required modules appended
+**Purpose:** Maps detected domain names to template domain names, handling mismatches between what the Domain Detection Agent outputs and what exists in `DOMAIN_TEMPLATES`.
 
-**How it works:**
-1. Looks up `DOMAIN_TEMPLATES` dictionary in `config/domain_templates.py`
-2. Appends standard required modules for the domain
-3. No LLM calls - pure dictionary lookup
+**Alias Mappings:**
+```python
+DOMAIN_ALIASES = {
+    "education": "edtech",
+    "social_media": "social_media_platform",
+    "iot": "iot_platform",
+    "enterprise": "saas",
+    "mobile_app": "mobile_app",  # Has own template
+    "web_app": "web_app",        # Has own template
+    "ai_ml": "ai_ml",            # Has own template
+    "blockchain": "blockchain",  # Has own template
+}
+```
 
-**Static Templates Defined:**
-
-| Domain | # Modules | Key Modules |
-|--------|-----------|-------------|
-| `ecommerce` | 10 | Auth, Product Catalog, Cart, Order Management, Payments, Admin Dashboard, Search, Customer Profile, Email, Reviews |
-| `saas` | 10 | Auth (SSO/MFA/RBAC), Multi-tenant, Subscriptions, Admin, User Management, API Gateway, Audit Logging, Email, Onboarding, Settings |
-| `marketplace` | 10 | Multi-role Auth, Vendor Management, Product Listings, Split Payments, Messaging, Commission Management |
-| `healthcare` | 11 | HIPAA Compliance, EHR, Appointments, Telemedicine, Prescriptions, Provider Management, Billing |
-| `fintech` | 11 | KYC, Transactions, Wallet, Compliance, Fraud Detection, Reconciliation, Security |
+**Functions:**
+- `resolve_domain_alias(detected_domain)` - Returns template domain name
+- `should_use_fallback(detected_domain)` - Returns True if LLM fallback needed
 
 ---
 
-### 3. Feature Structuring Agent
+### 2. Smart Template Expander (UPGRADED)
+
+**File:** `app/services/template_expander.py`  
+**Type:** LLM-powered with static fallback
+
+**Input:** Detected domain + description + build_options + additional_context  
+**Output:** Tuple of (enriched_description, selected_modules)
+
+**How it works:**
+1. **Domain Resolution:** Uses `resolve_domain_alias()` to map detected domain to template domain
+2. **Template Lookup:** Gets all modules from `DOMAIN_TEMPLATES` for the resolved domain
+3. **LLM Module Selection:** Uses LLM to intelligently select relevant modules based on:
+   - Project description
+   - Build options (mobile/web/admin/backend/design)
+   - Additional context
+4. **Fallback Generation:** If no template exists, uses `Fallback Module Generator` to create modules from scratch
+5. **Enriched Description:** Builds description with selected modules appended
+
+**Module Selection Criteria:**
+- **Explicitly Required** - Directly mentioned or implied in description
+- **Core Dependencies** - Required for other features (e.g., Auth for user features)
+- **Industry Standard** - Expected in any product of that domain
+- **Platform Requirements** - Needed based on build_options
+
+**Exclusion Criteria:**
+- Clearly out of scope based on description
+- Advanced features not mentioned for basic projects
+- Platform-specific features for platforms not being built
+
+**Key Improvement:** No longer dumps all modules blindly. Selects only essential modules based on actual business needs.
+
+---
+
+### 2a. Fallback Module Generator (NEW)
+
+**File:** `app/services/fallback_module_generator.py`  
+**Type:** LLM-powered (GPT-4o-mini)
+
+**Purpose:** Generates domain-specific modules from scratch when no template exists (e.g., for `unknown` domain or novel project types).
+
+**Input:** Domain + description + build_options  
+**Output:** List of generated module strings with sub-features
+
+**Generation Approach (Solutions Architect Mindset):**
+1. **Core Business Logic** - Primary features that make the product work
+2. **User Management** - Authentication, roles, permissions
+3. **Data & Content** - Storage, management, search, display
+4. **Transactions & Workflows** - Payments, bookings, multi-step processes
+5. **Communication** - Notifications, messaging, emails
+6. **Administration** - Admin/operator management tools
+7. **Integrations** - Third-party services (payments, maps, analytics)
+8. **Security & Compliance** - Industry-specific requirements
+9. **Platform-Specific** - Mobile/web/admin specific features
+
+**Fallback (if LLM unavailable):** Returns basic 8 modules covering Auth, Admin, Database, API, Search, Notifications, Settings, Logging.
+
+---
+
+### Static Templates (Domain Templates)
+
+**File:** `app/config/domain_templates.py`
+
+| Domain | # Modules | Key Modules |
+|--------|-----------|-------------|
+| `ecommerce` | 12 | Auth, Product Catalog, Cart, Orders, Payments, Admin, Search, Profile, Email, Reviews, Coupons, Shipping |
+| `saas` | 12 | Auth (SSO/MFA/RBAC), Multi-tenant, Subscriptions, Admin, Users, API Gateway, Audit, Email, Onboarding, Settings, Analytics, Workspace |
+| `marketplace` | 12 | Multi-role Auth, Vendor Onboarding, Listings, Search, Orders, Split Payments, Reviews, Admin, Messaging, Commission, Disputes, Vendor Analytics |
+| `healthcare` | 12 | Auth, Patient Management, Appointments, EHR, Provider Management, Prescriptions, Billing, Admin, HIPAA, Notifications, Telemedicine, Care Coordination |
+| `fintech` | 12 | Auth (KYC), Accounts, Transactions, Payments, Wallet, History, Admin, Compliance, Security, Notifications, Reconciliation, Disputes |
+| `mobile_app` | 10 | Auth, Push Notifications, Offline Sync, Navigation, Device Features, State Management, IAP, Analytics, Settings, Version Management |
+| `web_app` | 10 | Auth, Responsive Design, Admin Dashboard, API Integration, Search, Data Visualization, Notifications, Settings, File Management, SEO |
+| `ai_ml` | 10 | Auth/API Keys, Data Pipeline, Training Interface, Model Registry, Deployment, Inference API, Monitoring, Dashboard, Dataset Management, Cost Tracking |
+| `blockchain` | 10 | Wallet Integration, Smart Contracts, Auth, Transactions, Token Management, NFT Marketplace, DeFi, Admin, Explorer Integration, Security |
+| `unknown` | 8 | Auth, Admin Dashboard, Database, API Layer, Search, Notifications, Settings, Logging |
+
+---
+
+### 3. Feature Structuring Agent (UPGRADED)
 
 **File:** `app/agents/feature_structuring_agent.py`  
 **Type:** LLM-powered
 
-**Input:** Enriched description (original + required modules)  
+**Input:** Raw context (additional_details, extracted_text, selected_modules, build_options, domain)  
 **Output:** Structured feature list
 
 **Feature Structure:**
 ```json
 {
   "name": "User Authentication",
-  "category": "Security",
   "complexity": "Medium"
 }
 ```
 
-**Categories:** Core, Integration, Admin, Security, Infrastructure, UI/UX, Analytics, Communication
+**Note:** Category field has been removed. Features are now grouped by complexity level only.
 
 **Complexity Levels:** Low, Medium, High
+
+**Complexity Assessment Guidelines:**
+- **Low:** Standard CRUD, basic forms, static pages, simple auth
+- **Medium:** Business logic with conditions, third-party APIs, real-time features, role-based access, dashboards with charts
+- **High:** Compliance (HIPAA, PCI-DSS), GPS/tracking, AI/ML, complex algorithms, multi-tenant architecture, offline-first sync
+
+**Domain-Specific Considerations:**
+- Healthcare: Patient data handling is HIGH (HIPAA compliance)
+- Fintech: Payment/transaction features are HIGH (PCI, fraud prevention)
+- Marketplace: Multi-party transactions add complexity
+- Real-time apps: Location/tracking features are HIGH
 
 ---
 
@@ -536,13 +653,13 @@ strength_score = features_with_sample_size_gte_3 / total_features
 
 ---
 
-### 10. Planning Engine
+### 10. Planning Engine (UPGRADED)
 
 **File:** `app/services/planning_engine.py`  
 **Type:** 100% Static/Deterministic
 
 **Input:** Total hours, timeline, features  
-**Output:** Phase breakdown, team recommendation, category totals
+**Output:** Phase breakdown, team recommendation, complexity totals
 
 **Static Phase Ratios:**
 ```python
@@ -551,6 +668,16 @@ PHASE_RATIOS = {
     "backend": 0.35,   # 35%
     "qa": 0.15,        # 15%
     "pm_ba": 0.10      # 10%
+}
+```
+
+**Complexity Breakdown:**
+Hours are now aggregated by complexity level (High, Medium, Low) instead of category:
+```python
+complexity_totals = {
+    "High": 280.0,    # Hours for high complexity features
+    "Medium": 144.5,  # Hours for medium complexity features
+    "Low": 56.0       # Hours for low complexity features
 }
 ```
 
@@ -627,7 +754,7 @@ pm_count = 1
 
 **Requires JWT authentication** (Authorization: Bearer &lt;token&gt;).
 
-Supports **two content types** and **three input modes** (manual-only, file-only, hybrid):
+Supports **two content types** and **four input modes** (manual-only, file-only, hybrid, re-estimation):
 
 **JSON (application/json):**
 ```json
@@ -636,10 +763,12 @@ Supports **two content types** and **three input modes** (manual-only, file-only
     "build_options": ["mobile", "web", "admin"],
     "additional_context": "Focus on mobile users",
     "preferred_tech_stack": ["React", "Node.js"],
-    "timeline_constraint": "3 months"
+    "timeline_constraint": "3 months",
+    "project_id": "uuid-of-existing-project"
 }
 ```
 - At least one of `additional_details` (min 10 chars) or a file is required; for JSON-only, `additional_details` is required.
+- `project_id` is optional - if provided, fetches stored data from that project as defaults.
 
 **Multipart (multipart/form-data):**
 ```
@@ -649,16 +778,26 @@ build_options: JSON array string, e.g. "[\"mobile\",\"web\"]"
 timeline_constraint: "3 months"
 additional_context: "Optional context"
 preferred_tech_stack: "React, Node.js"
+project_id: "uuid-of-existing-project" (optional)
 ```
 
 **Input modes:**
 - Both `additional_details` (min 10 chars) and `file` → `hybrid`
 - Only `file` → `file_only`
 - Only `additional_details` → `manual_only`
+- `project_id` provided → `re-estimation` (uses stored data as defaults)
+
+**Re-estimation with project_id:**
+When `project_id` is provided:
+1. Fetches stored `additional_details`, `build_options`, `timeline_constraint` from `projects` table
+2. Fetches stored `extracted_text` from `documents` table (if document exists)
+3. Uses stored values as defaults - new inputs override stored values
+4. Runs full pipeline with combined context
 
 **Behaviour:**
 - Parses file (PDF/DOCX/XLSX/XLS) with document parser; applies LLM cleanup when extraction quality is poor.
-- Fuses manual + extracted text via Input Fusion, runs full pipeline, returns `FinalPipelineResponse` (unchanged).
+- Fuses manual + extracted text via Input Fusion, runs full pipeline, returns `FinalPipelineResponse`.
+- Passes `build_options` and `timeline_constraint` through the pipeline for context-aware processing.
 - After success, inserts a row into `projects` (user_id, additional_details, build_options, timeline_constraint) and, if a file was uploaded, a row into `documents` (user_id, project_id, filename, file_type, extracted_text).
 
 ### `/health` Endpoint
@@ -682,7 +821,7 @@ preferred_tech_stack: "React, Node.js"
 ```json
 {
     "current_features": [
-        {"name": "User Auth", "category": "Security", "complexity": "Medium"}
+        {"name": "User Auth", "complexity": "Medium"}
     ],
     "instruction": "Add analytics dashboard"
 }
@@ -692,18 +831,24 @@ preferred_tech_stack: "React, Node.js"
 
 ## Data Flow Summary
 
-1. **User submits** additional details (manual text) and/or build options (mobile, web, design, backend, admin) and/or uploaded PRD document
-2. **Document Parser** (Static) → extracts text from PDF/DOCX/Excel if file uploaded
-3. **Input Fusion** (Static) → combines manual + extracted text into unified description
-4. **Domain Detection** (LLM) → identifies domain (e.g., "ecommerce")
-5. **Template Expander** (Static) → appends 10+ required modules based on domain
-6. **Feature Structuring** (LLM) → extracts 15-25 features with categories/complexity
-7. **Estimation** (Static) → applies base hours + calibration + buffer
-8. **Confidence** (Static) → calculates 0-95% based on calibration coverage
-9. **Tech Stack** (Static/LLM) → recommends stack based on domain
-10. **Proposal** (LLM) → generates executive summary, deliverables, risks
-11. **Planning** (Static) → splits hours by phase, recommends team size
-12. **Response** → complete estimation package returned to user; request data stored in `projects` table and, when a file was uploaded, in `documents` table
+1. **User submits** additional details (manual text) + build_options (mobile, web, design, backend, admin) + timeline_constraint + optional PRD document + optional project_id
+2. **Project Reuse** (if project_id provided) → fetches stored additional_details, build_options, timeline_constraint, extracted_text from database as defaults
+3. **Document Parser** (Static) → extracts text from PDF/DOCX/Excel if file uploaded
+4. **Input Fusion** (Static) → combines manual + extracted text into unified description
+5. **Domain Detection** (LLM + Context) → identifies domain using description + additional_details + extracted_text + build_options + additional_context
+6. **Domain Alias Resolver** (Static) → maps detected domain to template domain name
+7. **Smart Template Expander** (LLM) → intelligently selects relevant modules from template based on:
+   - Project description
+   - Build options (mobile/web/admin)
+   - Additional context
+   - OR generates modules from scratch via Fallback Generator for unknown domains
+8. **Feature Structuring** (LLM) → extracts features with complexity levels from raw context (selected_modules, build_options, domain, additional_details, extracted_text)
+9. **Estimation** (Static) → applies base hours + calibration + buffer
+10. **Confidence** (Static) → calculates 0-95% based on calibration coverage
+11. **Tech Stack** (Static/LLM) → recommends stack based on domain
+12. **Proposal** (LLM) → generates executive summary, deliverables, risks (receives timeline_constraint for context)
+13. **Planning** (Static) → splits hours by phase, recommends team size
+14. **Response** → complete estimation package with metadata (build_options, timeline_constraint, modules_selected) returned to user; request data stored in `projects` and `documents` tables
 
 ---
 
@@ -857,7 +1002,7 @@ app/
 ├── main.py                          # FastAPI entry point, endpoints (auth, estimate, modify)
 ├── agents/
 │   ├── base_agent.py                # Base class with LLM call logic
-│   ├── domain_detection_agent.py    # LLM: Domain classification
+│   ├── domain_detection_agent.py    # LLM: Domain classification (UPGRADED - context-aware)
 │   ├── feature_structuring_agent.py # LLM: Feature extraction
 │   ├── estimation_agent.py          # STATIC: Hours calculation
 │   ├── tech_stack_agent.py          # HYBRID: Tech recommendations
@@ -865,24 +1010,26 @@ app/
 │   └── modification_agent.py        # LLM: Scope modification
 ├── services/
 │   ├── document_parser.py           # STATIC+LLM: PDF/DOCX/Excel extraction (pdfplumber)
-│   ├── document_cleaner.py          # LLM: Post-processing cleanup (NEW)
+│   ├── document_cleaner.py          # LLM: Post-processing cleanup
 │   ├── input_fusion_service.py      # STATIC: Combine manual + extracted text
 │   ├── database.py                  # STATIC: PostgreSQL connection pool
-│   ├── auth_service.py              # STATIC: JWT + password utilities (NEW)
-│   ├── template_expander.py         # STATIC: Domain template lookup
+│   ├── auth_service.py              # STATIC: JWT + password utilities
+│   ├── template_expander.py         # LLM: Smart template expansion (UPGRADED)
+│   ├── fallback_module_generator.py # LLM: Generate modules for unknown domains (NEW)
 │   ├── calibration_engine.py        # STATIC: Historical data matching
 │   ├── csv_calibration_loader.py    # STATIC: Excel file parsing for calibration
 │   ├── confidence_engine.py         # STATIC: Confidence calculation
 │   └── planning_engine.py           # STATIC: Phase/team planning
 ├── config/
-│   └── domain_templates.py          # Static domain module templates
+│   ├── domain_templates.py          # Static domain module templates (EXPANDED)
+│   └── domain_aliases.py            # Domain alias mappings (NEW)
 ├── models/
 │   ├── project_models.py            # Pydantic models for estimation
 │   ├── modification_models.py       # Pydantic models for modification
-│   ├── user_models.py               # Pydantic models for auth (NEW)
+│   ├── user_models.py               # Pydantic models for auth
 │   └── document_models.py           # Pydantic models for documents (project-linked)
 ├── orchestrator/
-│   └── project_pipeline.py          # Main pipeline orchestrator
+│   └── project_pipeline.py          # Main pipeline orchestrator (UPGRADED v2.0)
 └── data/
     └── calibration/                 # Historical Excel files (14 files)
 ```
@@ -899,4 +1046,4 @@ JWT_SECRET_KEY=your-secret-key  # Required for JWT token signing (change in prod
 
 ---
 
-*Last updated: February 2026*
+*Last updated: February 28, 2026 - Smart Template Engine v2.0 + Feature Structuring v2.0 (complexity-based)*

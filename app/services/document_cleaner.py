@@ -8,17 +8,11 @@ Uses LLM to clean and structure extracted document text:
 """
 
 import logging
-import os
 from typing import Optional
 
-import httpx
+from app.services.llm_client import llm_complete
 
 logger = logging.getLogger(__name__)
-
-OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-DEFAULT_MODEL = "openai/gpt-4o-mini"
-DEFAULT_TIMEOUT = 60.0
-MAX_RETRIES = 2
 
 CLEANUP_SYSTEM_PROMPT = """You are a document text cleaner. Your job is to clean and structure extracted document text while preserving ALL content.
 
@@ -36,7 +30,7 @@ The output should be clean, well-structured text that is easy to read and proces
 
 async def clean_extracted_text_with_llm(
     raw_text: str,
-    model: str = DEFAULT_MODEL,
+    model: str = "openai/gpt-4.1-nano",
     api_key: Optional[str] = None,
 ) -> str:
     """
@@ -44,7 +38,7 @@ async def clean_extracted_text_with_llm(
     
     Args:
         raw_text: Raw extracted text from document parser
-        model: LLM model to use (default: gpt-4o-mini)
+        model: LLM model to use (default: gpt-4.1-mini)
         api_key: OpenRouter API key (defaults to env var)
         
     Returns:
@@ -53,10 +47,6 @@ async def clean_extracted_text_with_llm(
     Raises:
         ValueError: If API call fails or returns invalid response
     """
-    api_key = api_key or os.getenv("OPENROUTER_API_KEY")
-    if not api_key:
-        raise ValueError("OPENROUTER_API_KEY not found in environment")
-    
     if not raw_text or not raw_text.strip():
         return raw_text
     
@@ -67,72 +57,26 @@ async def clean_extracted_text_with_llm(
         {"role": "user", "content": f"Clean and structure this extracted document text:\n\n{raw_text}"},
     ]
     
-    payload = {
-        "model": model,
-        "messages": messages,
-        "temperature": 0.1,
-        "max_tokens": 4000,
-    }
-    
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-    
-    last_exception = None
-    
-    for attempt in range(MAX_RETRIES + 1):
-        try:
-            async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-                response = await client.post(
-                    OPENROUTER_API_URL,
-                    json=payload,
-                    headers=headers,
-                )
-                response.raise_for_status()
-                
-                data = response.json()
-                
-                if "choices" not in data or len(data["choices"]) == 0:
-                    raise ValueError("Invalid response structure from API")
-                
-                cleaned_text = data["choices"][0]["message"]["content"]
-                
-                logger.info(
-                    "LLM document cleanup complete: input_chars=%d output_chars=%d",
-                    len(raw_text),
-                    len(cleaned_text),
-                )
-                logger.debug("Cleaned content preview (first 500 chars): %s", cleaned_text[:500])
-                
-                return cleaned_text
-                
-        except httpx.HTTPStatusError as e:
-            last_exception = e
-            logger.warning(
-                "LLM API request failed attempt=%d status=%d",
-                attempt + 1,
-                e.response.status_code,
-            )
-            if attempt < MAX_RETRIES:
-                import asyncio
-                await asyncio.sleep(2 ** attempt)
-                continue
-            
-        except httpx.TimeoutException as e:
-            last_exception = e
-            logger.warning("LLM API request timed out attempt=%d", attempt + 1)
-            if attempt < MAX_RETRIES:
-                import asyncio
-                await asyncio.sleep(2 ** attempt)
-                continue
-                
-        except Exception as e:
-            logger.exception("Unexpected error during LLM cleanup")
-            raise ValueError(f"LLM cleanup failed: {str(e)}") from e
-    
-    logger.error("LLM cleanup failed after %d attempts", MAX_RETRIES + 1)
-    raise ValueError(f"LLM cleanup failed after retries: {last_exception}")
+    try:
+        cleaned_text = await llm_complete(
+            messages=messages,
+            temperature=0.1,
+            max_tokens=4000,
+            model=model
+        )
+        
+        logger.info(
+            "LLM document cleanup complete: input_chars=%d output_chars=%d",
+            len(raw_text),
+            len(cleaned_text),
+        )
+        logger.debug("Cleaned content preview (first 500 chars): %s", cleaned_text[:500])
+        
+        return cleaned_text
+        
+    except Exception as e:
+        logger.exception("Error during LLM cleanup")
+        raise ValueError(f"LLM cleanup failed: {str(e)}") from e
 
 
 def should_use_llm_cleanup(raw_text: str, file_size_bytes: int) -> bool:

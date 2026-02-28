@@ -122,11 +122,12 @@ async def estimate_project(
     """
     Execute full estimation pipeline for a project.
     
-    Requires JWT authentication. Supports two input modes:
+    Requires JWT authentication. Supports three input modes:
     1. file upload: Upload a PRD document via multipart/form-data (PDF/DOCX/XLSX/XLS)
     2. manual input: Provide additional_details text directly (JSON or form-data)
+    3. re-estimation: Provide project_id to re-run estimation with stored data
     
-    Both modes can be combined (hybrid mode).
+    All modes can be combined (hybrid mode).
     
     **multipart/form-data fields:**
     - file: PRD document (optional, PDF/DOCX/XLSX/XLS)
@@ -135,6 +136,7 @@ async def estimate_project(
     - timeline_constraint: Timeline string e.g. "3 months" (optional)
     - additional_context: Extra context (optional)
     - preferred_tech_stack: Comma-separated techs e.g. "React, Node.js" (optional)
+    - project_id: UUID of existing project for re-estimation (optional)
     
     **JSON body fields:**
     - additional_details: Manual project description (required, min 10 chars)
@@ -142,6 +144,7 @@ async def estimate_project(
     - timeline_constraint: Timeline string (optional)
     - additional_context: Extra context (optional)
     - preferred_tech_stack: Array of strings (optional)
+    - project_id: UUID of existing project for re-estimation (optional)
     
     Args:
         request: Project request with description and/or file
@@ -161,6 +164,7 @@ async def estimate_project(
         build_options = []
         uploaded_filename = None
         uploaded_file_extension = None
+        project_id = None
 
         if "application/json" in content_type:
             body = await request.json()
@@ -171,6 +175,7 @@ async def estimate_project(
             additional_context = json_payload.additional_context
             preferred_tech_stack = json_payload.preferred_tech_stack
             timeline_constraint = json_payload.timeline_constraint
+            project_id = body.get("project_id")
 
         elif "multipart/form-data" in content_type:
             form = await request.form()
@@ -251,11 +256,80 @@ async def estimate_project(
                 else None
             )
 
+            project_id_raw = form.get("project_id")
+            project_id = (
+                str(project_id_raw).strip()
+                if project_id_raw is not None and str(project_id_raw).strip()
+                else None
+            )
+
         else:
             raise HTTPException(
                 status_code=415,
                 detail="Unsupported Content-Type. Use application/json or multipart/form-data.",
             )
+
+        # If project_id is provided, fetch stored project data as defaults
+        if project_id:
+            try:
+                import uuid as uuid_module
+                project_uuid = uuid_module.UUID(project_id)
+                
+                async with db.pool.acquire() as conn:
+                    project = await conn.fetchrow(
+                        """
+                        SELECT additional_details, build_options, timeline_constraint 
+                        FROM projects 
+                        WHERE id = $1 AND user_id = $2
+                        """,
+                        project_uuid,
+                        current_user.id,
+                    )
+                    
+                    if not project:
+                        raise HTTPException(
+                            status_code=404,
+                            detail="Project not found or access denied",
+                        )
+                    
+                    # Use stored values as defaults (new inputs override stored)
+                    if not additional_details and project["additional_details"]:
+                        additional_details = project["additional_details"]
+                        logger.info(f"Using stored additional_details for project {project_id}")
+                    
+                    if not build_options and project["build_options"]:
+                        build_options = list(project["build_options"])
+                        logger.info(f"Using stored build_options for project {project_id}")
+                    
+                    if not timeline_constraint and project["timeline_constraint"]:
+                        timeline_constraint = project["timeline_constraint"]
+                        logger.info(f"Using stored timeline_constraint for project {project_id}")
+                    
+                    # Fetch stored extracted_text from documents table
+                    doc = await conn.fetchrow(
+                        """
+                        SELECT extracted_text 
+                        FROM documents 
+                        WHERE project_id = $1
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                        """,
+                        project_uuid,
+                    )
+                    
+                    if doc and doc["extracted_text"] and not extracted_text:
+                        extracted_text = doc["extracted_text"]
+                        logger.info(f"Using stored extracted_text for project {project_id}")
+                        
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid project_id format. Must be a valid UUID.",
+                )
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.warning(f"Failed to fetch project data for re-estimation: {e}")
 
         has_manual = bool((additional_details or "").strip()) and len((additional_details or "").strip()) >= 10
         has_file = bool((extracted_text or "").strip())
@@ -287,6 +361,9 @@ async def estimate_project(
             "additional_context": additional_context,
             "preferred_tech_stack": preferred_tech_stack,
             "build_options": build_options,
+            "timeline_constraint": timeline_constraint,
+            "additional_details": additional_details or "",
+            "extracted_text": extracted_text or "",
         })
 
         try:

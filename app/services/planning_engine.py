@@ -25,10 +25,10 @@ class PlanningEngine:
         Args:
             total_hours: Total estimated hours
             timeline_weeks: Project timeline in weeks
-            features: List of features with categories
+            features: List of features with complexity levels
             
         Returns:
-            Planning breakdown with phases, team, and category totals
+            Planning breakdown with phases, team, and complexity totals
         """
         phase_breakdown = PlanningEngine._compute_phase_breakdown(total_hours)
         
@@ -37,12 +37,12 @@ class PlanningEngine:
             timeline_weeks
         )
         
-        category_totals = PlanningEngine._compute_category_totals(features)
+        complexity_totals = PlanningEngine._compute_complexity_totals(features)
         
         return {
             "phase_breakdown": phase_breakdown,
             "team_recommendation": team_recommendation,
-            "category_totals": category_totals,
+            "complexity_totals": complexity_totals,
             "timeline_weeks": round(timeline_weeks, 1),
             "total_hours": round(total_hours, 1)
         }
@@ -104,25 +104,30 @@ class PlanningEngine:
         }
     
     @staticmethod
-    def _compute_category_totals(features: List[Dict[str, Any]]) -> Dict[str, float]:
+    def _compute_complexity_totals(features: List[Dict[str, Any]]) -> Dict[str, float]:
         """
-        Aggregate hours by feature category.
+        Aggregate hours by feature complexity level.
         
         Args:
-            features: List of features with category and hours
+            features: List of features with complexity and hours
             
         Returns:
-            Dict mapping category to total hours
+            Dict mapping complexity level (Low, Medium, High) to total hours
         """
-        category_totals: Dict[str, float] = {}
+        complexity_totals: Dict[str, float] = {}
         
         for feature in features:
-            category = feature.get("description", "Core")
-            hours = feature.get("estimated_hours", 0.0)
+            complexity = feature.get("complexity", "medium").capitalize()
+            hours = feature.get("total_hours", feature.get("estimated_hours", 0.0))
             
-            if category not in category_totals:
-                category_totals[category] = 0.0
+            if complexity not in complexity_totals:
+                complexity_totals[complexity] = 0.0
             
-            category_totals[category] += hours
+            complexity_totals[complexity] += hours
         
-        return {k: round(v, 1) for k, v in sorted(category_totals.items())}
+        complexity_order = {"High": 0, "Medium": 1, "Low": 2}
+        sorted_items = sorted(
+            complexity_totals.items(),
+            key=lambda x: complexity_order.get(x[0], 3)
+        )
+        return {k: round(v, 1) for k, v in sorted_items}

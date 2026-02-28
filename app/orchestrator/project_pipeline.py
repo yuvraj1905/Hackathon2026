@@ -1,11 +1,11 @@
-from typing import Dict, Any, AsyncGenerator, Optional, Callable
+from typing import Dict, Any, AsyncGenerator, Optional, Callable, List
 import uuid
 from app.agents.domain_detection_agent import DomainDetectionAgent
 from app.agents.feature_structuring_agent import FeatureStructuringAgent
 from app.agents.estimation_agent import EstimationAgent
 from app.agents.tech_stack_agent import TechStackAgent
 from app.agents.proposal_agent import ProposalAgent
-from app.services.template_expander import TemplateExpander
+from app.services.template_expander import SmartTemplateExpander
 from app.services.calibration_engine import CalibrationEngine
 from app.services.confidence_engine import ConfidenceEngine
 from app.services.planning_engine import PlanningEngine
@@ -35,13 +35,16 @@ class ProjectPipeline:
         )
         self.tech_stack_agent = TechStackAgent()
         self.proposal_agent = ProposalAgent()
+        self.template_expander = SmartTemplateExpander()
     
     async def run(self, project_input: Dict[str, Any]) -> Dict[str, Any]:
         """
         Execute full estimation pipeline (non-streaming).
 
         Args:
-            project_input: Dict with 'description'; optional 'additional_context', 'preferred_tech_stack', 'build_options' (mobile|web|design|backend|admin for LLM use).
+            project_input: Dict with 'description'; optional 'additional_context', 
+                          'preferred_tech_stack', 'build_options', 'timeline_constraint',
+                          'additional_details', 'extracted_text'.
 
         Returns:
             Complete pipeline response
@@ -63,19 +66,36 @@ class ProjectPipeline:
         Execute pipeline with streaming progress updates.
 
         Args:
-            project_input: Dict with 'description'; optional 'additional_context', 'preferred_tech_stack', 'build_options'.
+            project_input: Dict with 'description'; optional 'additional_context', 
+                          'preferred_tech_stack', 'build_options', 'timeline_constraint',
+                          'additional_details', 'extracted_text'.
             progress_callback: Optional callback for progress events.
 
         Yields:
             Progress events and final result
         """
         request_id = str(uuid.uuid4())
-        description = project_input.get("description", "")
         
+        # Extract all context from input
+        description = project_input.get("description", "")
+        build_options = project_input.get("build_options", [])
+        timeline_constraint = project_input.get("timeline_constraint", "")
+        additional_context = project_input.get("additional_context", "")
+        preferred_tech_stack = project_input.get("preferred_tech_stack", [])
+        additional_details = project_input.get("additional_details", "")
+        extracted_text = project_input.get("extracted_text", "")
+        
+        # ========== STAGE 1: Domain Detection ==========
         yield {"stage": "domain_detection_started"}
         
+        # Pass ALL context to domain detection for better classification
         domain_result = await self.domain_agent.execute({
-            "description": description
+            "description": description,
+            "additional_details": additional_details,
+            "extracted_text": extracted_text,
+            "build_options": build_options,
+            "timeline_constraint": timeline_constraint,
+            "additional_context": additional_context,
         })
         
         detected_domain = domain_result.get("detected_domain", "unknown")
@@ -83,18 +103,37 @@ class ProjectPipeline:
         yield {
             "stage": "domain_detection_done",
             "domain": detected_domain,
-            "confidence": domain_result.get("confidence")
+            "confidence": domain_result.get("confidence"),
+            "reasoning": domain_result.get("reasoning", "")
         }
         
-        enriched_description = TemplateExpander.expand(
-            detected_domain,
-            description
+        # ========== STAGE 2: Smart Template Expansion ==========
+        yield {"stage": "template_expansion_started"}
+        
+        # Pass context to smart template expander for intelligent module selection
+        # Note: timeline_constraint is NOT passed here - it's used later for proposal/planning
+        enriched_description, selected_modules = await self.template_expander.expand(
+            domain=detected_domain,
+            description=description,
+            build_options=build_options,
+            additional_context=additional_context,
         )
         
+        yield {
+            "stage": "template_expansion_done",
+            "modules_selected": len(selected_modules),
+            "modules": selected_modules
+        }
+        
+        # ========== STAGE 3: Feature Structuring ==========
         yield {"stage": "feature_structuring_started"}
         
         feature_result = await self.feature_agent.execute({
-            "enriched_description": enriched_description
+            "additional_details": additional_details,
+            "extracted_text": extracted_text,
+            "selected_modules": selected_modules,
+            "build_options": build_options,
+            "domain": detected_domain,
         })
         
         features = feature_result.get("features", [])
@@ -104,6 +143,7 @@ class ProjectPipeline:
             "feature_count": len(features)
         }
         
+        # ========== STAGE 4: Estimation ==========
         yield {"stage": "estimation_started"}
         
         estimation_result = await self.estimation_agent.execute({
@@ -122,26 +162,32 @@ class ProjectPipeline:
             "feature_count": len(estimated_features)
         }
         
+        # ========== STAGE 5: Confidence Calculation ==========
         confidence_score = ConfidenceEngine.calculate_confidence(
             estimated_features,
             domain_result.get("confidence", 0.5),
             self.calibration_engine
         )
         
+        # ========== STAGE 6: Tech Stack ==========
         tech_stack_result = await self.tech_stack_agent.execute({
             "domain": detected_domain,
-            "features": features
+            "features": features,
+            "preferred_tech_stack": preferred_tech_stack,
         })
         
+        # ========== STAGE 7: Proposal ==========
         yield {"stage": "proposal_started"}
         
         proposal_result = await self.proposal_agent.execute({
             "domain": detected_domain,
             "features": estimated_features,
             "total_hours": total_hours,
-            "tech_stack": tech_stack_result
+            "tech_stack": tech_stack_result,
+            "timeline_constraint": timeline_constraint,
         })
         
+        # ========== STAGE 8: Planning ==========
         formatted_features = self._format_features_for_response(
             estimated_features,
             confidence_score / 100
@@ -153,6 +199,7 @@ class ProjectPipeline:
             features=formatted_features
         )
         
+        # ========== Build Final Result ==========
         final_result = {
             "request_id": request_id,
             "domain_detection": domain_result,
@@ -174,17 +221,20 @@ class ProjectPipeline:
             "planning": {
                 "phase_split": planning_result["phase_breakdown"],
                 "team_recommendation": planning_result["team_recommendation"],
-                "category_breakdown": planning_result["category_totals"]
+                "complexity_breakdown": planning_result["complexity_totals"]
             },
             "metadata": {
-                "pipeline_version": "1.0.0",
+                "pipeline_version": "2.0.0",
                 "feature_count": len(estimated_features),
+                "modules_selected": len(selected_modules),
                 "calibrated_features": sum(1 for f in estimated_features if f.get("was_calibrated", False)),
                 "calibration_coverage": round(
                     sum(1 for f in estimated_features if f.get("was_calibrated", False)) / len(estimated_features) * 100
                     if len(estimated_features) > 0 else 0,
                     1
-                )
+                ),
+                "build_options": build_options,
+                "timeline_constraint": timeline_constraint,
             }
         }
         
@@ -203,17 +253,23 @@ class ProjectPipeline:
             overall_confidence: Overall confidence score
             
         Returns:
-            Features formatted for Feature model
+            Features formatted for Feature model with subfeatures
         """
         formatted = []
         
         for feature in estimated_features:
+            subfeatures = []
+            for sf in feature.get("subfeatures", []):
+                subfeatures.append({
+                    "name": sf.get("name", ""),
+                    "effort": sf.get("effort", 0.0)
+                })
+            
             formatted.append({
                 "name": feature.get("name", ""),
-                "description": feature.get("category", "Core"),
                 "complexity": feature.get("complexity", "Medium").lower(),
-                "estimated_hours": feature.get("final_hours", 0.0),
-                "dependencies": [],
+                "total_hours": feature.get("total_hours", 0.0),
+                "subfeatures": subfeatures,
                 "confidence_score": round(overall_confidence, 2)
             })
         
