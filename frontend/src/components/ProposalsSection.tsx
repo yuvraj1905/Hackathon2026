@@ -98,8 +98,8 @@ export function ProposalsSection({
                             </div>
 
                             <Link href="/proposals/new">
-                                <Button variant="outline" size="sm">
-                                    Regenerate
+                                <Button variant="outline" size="sm" className="shrink-0">
+                                    Generate Proposal
                                 </Button>
                             </Link>
                         </div>

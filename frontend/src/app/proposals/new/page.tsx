@@ -9,7 +9,7 @@ import {
     EstimateInputSection,
     type LoadingStep,
 } from "@/components/EstimateInputSection";
-import { appendProposalToHistory, fetchEstimate } from "@/lib/estimateApi";
+import { appendProposalToHistory, fetchEstimate, setLastEstimateRaw } from "@/lib/estimateApi";
 import { useToast } from "@/hooks/use-toast";
 
 export default function NewProposalPage() {
@@ -84,6 +84,7 @@ export default function NewProposalPage() {
             appendProposalToHistory(raw, {
                 title: projectDesc || uploadedFile?.name,
             });
+            setLastEstimateRaw(raw);
 
             toast({ title: "Estimation ready!" });
             router.push("/dashboard");
