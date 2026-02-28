@@ -849,7 +849,7 @@ async def get_proposal_pdf(project_id: str) -> StreamingResponse:
         raise HTTPException(status_code=500, detail="Failed to generate proposal PDF")
 
     logger.info(
-        "Serving proposal PDF: request_id=%s size=%d bytes",
+        "Serving proposal PDF: project_id=%s size=%d bytes",
         project_id,
         len(pdf_bytes),
     )
