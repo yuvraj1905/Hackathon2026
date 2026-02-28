@@ -59,14 +59,13 @@ function getPhaseRatiosFromModules(modules: Module[]) {
 }
 
 function parseModifyResponse(data: any, context?: any, currentModules?: Module[]): Module[] | null {
-  const isModifyResponse =
+  // Modify API response: apply whenever we have a features array (single source of truth)
+  const hasFeatures =
     data &&
     Array.isArray(data.features) &&
-    data.features.length > 0 &&
-    typeof data.total_hours === "number" &&
-    !Array.isArray(data.modules);
+    data.features.length > 0;
 
-  if (isModifyResponse) {
+  if (hasFeatures) {
     const features: any[] = data.features;
 
     // Use only API/context or current table ratios; if none, put hours in integration only
@@ -307,15 +306,53 @@ export default function FloatingAIAgent({ modules, setModules, apiBase, rawApiRe
 
       const data = await response.json();
 
-      let updatedModules = parseModifyResponse(data, rawApiResponse, modules);
-      if (!updatedModules && Array.isArray(data.features) && data.features.length > 0) {
-        updatedModules = parseModifyResponse(
-          { ...data, total_hours: typeof data.total_hours === "number" ? data.total_hours : 0 },
-          rawApiResponse,
-          modules,
-        );
-      }
-      if (updatedModules && updatedModules.length > 0) {
+      // Modify API is the single source of truth: build table data directly from API features (including subfeatures)
+      if (Array.isArray(data.features) && data.features.length > 0) {
+        const features: any[] = data.features;
+        const tasks: SubTask[] = features.map((f: any, i: number) => {
+          const hours = Number(f.total_hours ?? f.estimated_hours) || 0;
+          const third = Math.round((hours / 3) * 10) / 10;
+          const featureName = (f.name ?? "").toString().trim() || `Feature ${i + 1}`;
+          const subfeaturesRaw: any[] = Array.isArray(f.subfeatures) ? f.subfeatures : [];
+          // Don't show a single self-named subfeature (e.g. "Logout" under "Logout") as children
+          const subList = subfeaturesRaw
+            .map((sf: any, j: number) => ({
+              id: `modify-${i + 1}-${j + 1}`,
+              name: (sf.name ?? "").toString().trim(),
+              effort: Number(sf.effort) || 0,
+            }))
+            .filter((s) => s.name && s.name.toLowerCase() !== featureName.toLowerCase());
+          const children: SubTask[] | undefined =
+            subList.length > 0
+              ? subList.map((s) => {
+                  const e = s.effort;
+                  const t = Math.round((e / 3) * 10) / 10;
+                  return {
+                    id: s.id,
+                    name: s.name,
+                    frontend: t,
+                    backend: t,
+                    integration: 0,
+                    testing: Math.round((e - t * 2) * 10) / 10,
+                    total: e,
+                  };
+                })
+              : undefined;
+          return {
+            id: `modify-${i + 1}`,
+            name: featureName,
+            frontend: third,
+            backend: third,
+            integration: 0,
+            testing: Math.round((hours - third * 2) * 10) / 10,
+            total: hours,
+            ...(children && children.length > 0 ? { children } : {}),
+            ...((f.complexity && String(f.complexity).toLowerCase()) ? { complexity: String(f.complexity).toLowerCase() } : {}),
+          };
+        });
+        const domainStr = (rawApiResponse?.domain_detection?.detected_domain ?? "").toString().replace(/_/g, " ").trim();
+        const moduleName = domainStr ? domainStr.charAt(0).toUpperCase() + domainStr.slice(1) : "Features";
+        const updatedModules: Module[] = [{ id: "modify-1", name: moduleName, expanded: true, tasks }];
         setModules(updatedModules);
       }
 

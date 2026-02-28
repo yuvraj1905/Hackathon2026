@@ -456,6 +456,46 @@ async def estimate_project(
         raise HTTPException(status_code=500, detail="Internal estimation error")
 
 
+def _apply_deterministic_add_feature(features: list, instruction: str) -> list:
+    """When user says 'add X feature' or 'add logout', append that feature so modify API returns it and UI shows it."""
+    if not instruction or not isinstance(features, list):
+        return features
+    instr = instruction.strip().lower()
+    if "add" not in instr:
+        return features
+    name = None
+    if " feature" in instr:
+        for prefix in ("add a ", "add "):
+            if prefix in instr:
+                start = instr.find(prefix) + len(prefix)
+                end = instr.find(" feature", start)
+                if end > start:
+                    raw = instruction[start:end].strip()
+                    if raw:
+                        name = raw
+                        break
+                break
+    if not name:
+        for prefix in ("add a ", "add "):
+            if prefix in instr:
+                start = instr.find(prefix) + len(prefix)
+                raw = instruction[start:].strip().split(",")[0].split(".")[0].strip()
+                if raw and len(raw) < 80:
+                    name = raw
+                    break
+                break
+    if not name and "logout" in instr:
+        name = "logout"
+    if not name:
+        return features
+    display_name = (name or "").strip().title()
+    existing = {str(f.get("name", "")).strip().lower() for f in features if isinstance(f, dict)}
+    if display_name.lower() in existing:
+        return features
+    logger.info("Deterministic add feature: appending %r (instruction: %s)", display_name, instruction[:60])
+    return features + [{"name": display_name, "category": "Core", "complexity": "medium", "subfeatures": []}]
+
+
 @app.post("/modify", response_model=ModificationResponse)
 async def modify_scope(request: ModificationRequest) -> ModificationResponse:
     """
@@ -485,6 +525,7 @@ async def modify_scope(request: ModificationRequest) -> ModificationResponse:
         })
         
         updated_features = modification_result.get("features", [])
+        updated_features = _apply_deterministic_add_feature(updated_features, request.instruction)
         
         estimation_result = await estimation_agent.execute({
             "features": updated_features,
@@ -492,13 +533,13 @@ async def modify_scope(request: ModificationRequest) -> ModificationResponse:
         })
         
         estimated_features = estimation_result.get("features", [])
-        total_hours = estimation_result.get("total_hours", 0)
+        pipeline_total_hours = estimation_result.get("total_hours", 0)
         min_hours = estimation_result.get("min_hours", 0)
         max_hours = estimation_result.get("max_hours", 0)
         
         formatted_features = []
         for feature in estimated_features:
-            total_hours = feature.get("total_hours", 0.0)
+            feat_hours = feature.get("total_hours", 0.0)
             subfeatures_raw = feature.get("subfeatures", [])
             subfeatures = [
                 {"name": sf.get("name", ""), "effort": sf.get("effort", 0.0)}
@@ -508,8 +549,8 @@ async def modify_scope(request: ModificationRequest) -> ModificationResponse:
                 "name": feature.get("name", ""),
                 "description": feature.get("category", "Core"),
                 "complexity": feature.get("complexity", "Medium").lower(),
-                "estimated_hours": total_hours,
-                "total_hours": total_hours,
+                "estimated_hours": feat_hours,
+                "total_hours": feat_hours,
                 "subfeatures": subfeatures,
                 "dependencies": [],
                 "confidence_score": 0.75
@@ -523,7 +564,7 @@ async def modify_scope(request: ModificationRequest) -> ModificationResponse:
         logger.info(f"Modification completed: {len(updated_features)} features")
         
         return ModificationResponse(
-            total_hours=total_hours,
+            total_hours=pipeline_total_hours,
             min_hours=min_hours,
             max_hours=max_hours,
             features=formatted_features,

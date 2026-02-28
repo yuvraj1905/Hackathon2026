@@ -97,6 +97,7 @@ export function EstimatesResultsSection({
         transition={{ delay: 0.15 }}
       >
         <EstimateFeaturesTable
+          key={`estimate-table-${modules.reduce((a, m) => a + m.tasks.length, 0)}`}
           filteredModules={filteredModules}
           totalsByColumn={totalsByColumn}
           searchQuery={searchQuery}
