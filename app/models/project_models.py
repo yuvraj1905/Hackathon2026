@@ -80,16 +80,28 @@ class TechStackRecommendation(BaseModel):
     justification: str = Field(..., description="Why this stack was recommended")
 
 
+class ProjectTimelinePhase(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    phase: str = Field(..., description="Phase name, e.g. 'Discovery & Planning'")
+    duration: str = Field(..., description="Duration string, e.g. '2 weeks'")
+    description: str = Field(..., description="Brief description of phase activities")
+
+
 class ProposalResponse(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
-    
+
+    abstract: str = Field(default="", description="2-3 paragraph overview of the project")
     executive_summary: str = Field(..., description="High-level project summary")
     scope_of_work: str = Field(..., description="Detailed scope description")
     deliverables: List[str] = Field(..., description="Key deliverables")
+    project_timeline: List[Dict[str, str]] = Field(default_factory=list, description="Phased project timeline with phase, duration, description")
     timeline_weeks: float = Field(..., ge=0, description="Estimated timeline in weeks")
     team_composition: Dict[str, int] = Field(..., description="Recommended team structure")
     risks: List[str] = Field(default_factory=list, description="Identified risks")
     mitigation_strategies: List[str] = Field(default_factory=list, description="Risk mitigation")
+    assumptions: List[str] = Field(default_factory=list, description="Key assumptions and considerations for successful delivery")
+    client_dependencies: List[str] = Field(default_factory=list, description="Client dependencies like branding assets, third-party access")
 
 
 class ProjectRequest(BaseModel):
@@ -114,10 +126,22 @@ class PlanningResult(BaseModel):
     complexity_breakdown: Dict[str, float] = Field(..., description="Hours by complexity level (High, Medium, Low)")
 
 
+class ProjectListItem(BaseModel):
+    """One project row for list endpoints (e.g. GET /projects). Matches frontend StoredProposalSummary."""
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    id: str = Field(..., description="Project UUID")
+    request_id: str = Field(..., description="Same as id; use for PDF/Doc URLs")
+    title: str = Field(..., description="Display title from metadata or additional_details")
+    domain: str = Field(..., description="Detected domain (e.g. ecommerce, fintech)")
+    totalHours: float = Field(..., ge=0, description="Total estimated hours")
+    createdAt: str = Field(..., description="ISO 8601 created_at from DB")
+
+
 class FinalPipelineResponse(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
     
-    request_id: str = Field(..., description="Unique request identifier")
+    project_id: Optional[str] = Field(None, description="Project UUID; use this for proposal PDF/Doc URLs")
     domain_detection: DomainDetectionResult = Field(..., description="Domain detection results")
     estimation: EstimationResult = Field(..., description="Estimation breakdown")
     tech_stack: TechStackRecommendation = Field(..., description="Recommended tech stack")

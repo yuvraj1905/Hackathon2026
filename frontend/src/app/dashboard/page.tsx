@@ -58,6 +58,7 @@ export default function DashboardPage() {
     StoredProposalSummary[]
   >([]);
   const [rawApiResponse, setRawApiResponse] = useState<any>(null);
+  const [estimateTableKey, setEstimateTableKey] = useState(0);
   const [taskExpanded, setTaskExpanded] = useState<Record<string, boolean>>(
     {},
   );
@@ -613,6 +614,7 @@ export default function DashboardPage() {
               ) : (
                 <>
                   <EstimatesResultsSection
+                    estimateTableKey={estimateTableKey}
                     statCards={statCards}
                     summaryData={summaryData}
                     proposalData={proposalData}
@@ -639,6 +641,7 @@ export default function DashboardPage() {
                     <FloatingAIAgent
                       modules={modules}
                       setModules={setModules}
+                      onModifyApplied={() => setEstimateTableKey((k) => k + 1)}
                       apiBase={process.env.NEXT_PUBLIC_API_BASE}
                       rawApiResponse={rawApiResponse}
                     />

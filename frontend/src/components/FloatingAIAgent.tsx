@@ -17,6 +17,7 @@ interface Message {
 interface FloatingAIAgentProps {
   modules: Module[];
   setModules: React.Dispatch<React.SetStateAction<Module[]>>;
+  onModifyApplied?: () => void;
   apiBase?: string;
   rawApiResponse?: any;
 }
@@ -197,7 +198,7 @@ function parseModifyResponse(data: any, context?: any, currentModules?: Module[]
   });
 }
 
-export default function FloatingAIAgent({ modules, setModules, apiBase, rawApiResponse }: FloatingAIAgentProps) {
+export default function FloatingAIAgent({ modules, setModules, onModifyApplied, apiBase, rawApiResponse }: FloatingAIAgentProps) {
   const API_BASE = apiBase || "http://127.0.0.1:8000";
 
   const [isOpen, setIsOpen] = useState(false);
@@ -307,8 +308,10 @@ export default function FloatingAIAgent({ modules, setModules, apiBase, rawApiRe
       const data = await response.json();
 
       // Modify API is the single source of truth: build table data directly from API features (including subfeatures)
-      if (Array.isArray(data.features) && data.features.length > 0) {
-        const features: any[] = data.features;
+      // Support both "features" and "estimated_features" in case API response shape changes
+      const rawFeatures = Array.isArray(data.features) ? data.features : Array.isArray(data.estimated_features) ? data.estimated_features : [];
+      if (rawFeatures.length > 0) {
+        const features: any[] = rawFeatures;
         const tasks: SubTask[] = features.map((f: any, i: number) => {
           const hours = Number(f.total_hours ?? f.estimated_hours) || 0;
           const third = Math.round((hours / 3) * 10) / 10;
@@ -354,6 +357,7 @@ export default function FloatingAIAgent({ modules, setModules, apiBase, rawApiRe
         const moduleName = domainStr ? domainStr.charAt(0).toUpperCase() + domainStr.slice(1) : "Features";
         const updatedModules: Module[] = [{ id: "modify-1", name: moduleName, expanded: true, tasks }];
         setModules(updatedModules);
+        onModifyApplied?.();
       }
 
       // Use only backend response: changes_summary and hours (no fallback copy)

@@ -15,6 +15,7 @@ import {
 import type { StatCard } from "./estimate-results";
 
 export interface EstimatesResultsSectionProps {
+  estimateTableKey?: number;
   statCards: StatCard[];
   summaryData: { domain: string; platforms?: string[]; totalHours: number; timeline: string; confidence: number };
   proposalData: ProposalData | null;
@@ -45,6 +46,7 @@ export interface EstimatesResultsSectionProps {
 }
 
 export function EstimatesResultsSection({
+  estimateTableKey = 0,
   statCards,
   summaryData,
   proposalData,
@@ -97,7 +99,7 @@ export function EstimatesResultsSection({
         transition={{ delay: 0.15 }}
       >
         <EstimateFeaturesTable
-          key={`estimate-table-${modules.reduce((a, m) => a + m.tasks.length, 0)}`}
+          key={`estimate-table-${estimateTableKey}-${modules.reduce((a, m) => a + m.tasks.length, 0)}`}
           filteredModules={filteredModules}
           totalsByColumn={totalsByColumn}
           searchQuery={searchQuery}

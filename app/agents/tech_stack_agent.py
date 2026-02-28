@@ -62,8 +62,8 @@ class TechStackAgent(BaseAgent):
         "framework": "NestJS",
         "orm": "Prisma",
         "api_architecture_style": "REST + GraphQL (optional)",
+        "authentication": "Passport.js + JWT",
         "documentation": "Swagger/OpenAPI",
-        "testing": "Jest",
         "logging": "Winston/Pino",
         "justification": "NestJS provides enterprise-grade architecture with dependency injection, modularity, and excellent TypeScript support."
     }
