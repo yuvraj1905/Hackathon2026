@@ -495,7 +495,7 @@ async def estimate_project(
 
         logger.info(
             "Estimation completed: project_id=%s mode=%s",
-            project_id,,
+            project_id,
             input_mode
         )
 
@@ -778,22 +778,27 @@ def _build_proposal_context(data: dict[str, Any]) -> dict[str, Any]:
             "confidence_score": f.get("confidence_score", 0),
         })
 
+    assumptions = proposal.get("assumptions", []) or estimation.get("assumptions", [])
+
     return {
         "request_id": data.get("request_id", "N/A"),
         "project_title": f"{detected_domain} Platform",
         "detected_domain": detected_domain,
+        "abstract": proposal.get("abstract", ""),
         "executive_summary": proposal.get("executive_summary", ""),
         "proposed_solution": proposal.get("proposed_solution", ""),
         "scope_of_work": proposal.get("scope_of_work", ""),
         "deliverables": proposal.get("deliverables", []),
+        "project_timeline": proposal.get("project_timeline", []),
         "risks": proposal.get("risks", []),
         "mitigation_strategies": proposal.get("mitigation_strategies", []),
+        "assumptions": assumptions,
+        "client_dependencies": proposal.get("client_dependencies", []),
         "features": features,
         "total_hours": estimation.get("total_hours", 0),
         "min_hours": estimation.get("min_hours", 0),
         "max_hours": estimation.get("max_hours", 0),
         "confidence_score": estimation.get("confidence_score", 0),
-        "assumptions": estimation.get("assumptions", []),
         "tech_frontend": _flatten_tech_layer(tech_stack.get("frontend")),
         "tech_backend": _flatten_tech_layer(tech_stack.get("backend")),
         "tech_database": _flatten_tech_layer(tech_stack.get("database")),
@@ -822,7 +827,7 @@ async def get_proposal_pdf(project_id: str) -> StreamingResponse:
     Raises:
         404 if the estimation is not found in the cache (re-run /estimate first).
     """
-    cached = _estimation_cache.get(request_id)
+    cached = await _get_estimation_data(project_id)
     if cached is None:
         logger.warning("Proposal PDF requested for unknown project_id=%s", project_id)
         raise HTTPException(
@@ -831,7 +836,7 @@ async def get_proposal_pdf(project_id: str) -> StreamingResponse:
         )
 
     try:
-        logger.info("Generating proposal PDF for request_id=%s", request_id)
+        logger.info("Generating proposal PDF for project_id=%s", project_id)
         context = _build_proposal_context(cached)
         html = render_proposal(context)
         pdf_bytes = pdf_service.generate_pdf(html)
@@ -845,7 +850,7 @@ async def get_proposal_pdf(project_id: str) -> StreamingResponse:
 
     logger.info(
         "Serving proposal PDF: request_id=%s size=%d bytes",
-        request_id,
+        project_id,
         len(pdf_bytes),
     )
 
@@ -858,23 +863,23 @@ async def get_proposal_pdf(project_id: str) -> StreamingResponse:
     )
 
 
-@app.get("/proposal/html/{request_id}")
-async def get_proposal_html(request_id: str) -> dict:
+@app.get("/proposal/html/{project_id}")
+async def get_proposal_html(project_id: str) -> dict:
     """
     Return rendered proposal HTML and title for client-side Google Docs export.
 
     Args:
-        request_id: The UUID returned by /estimate.
+        project_id: The project UUID returned in the /estimate response (use for PDF/Doc links).
 
     Returns:
         JSON: ``{"html": "<rendered html>", "title": "Project — Proposal"}``
     """
-    cached = _estimation_cache.get(request_id)
+    cached = await _get_estimation_data(project_id)
     if cached is None:
-        logger.warning("Proposal HTML requested for unknown request_id=%s", request_id)
+        logger.warning("Proposal HTML requested for unknown project_id=%s", project_id)
         raise HTTPException(
             status_code=404,
-            detail=f"Estimation '{request_id}' not found. Re-run the estimation to regenerate.",
+            detail=f"Estimation '{project_id}' not found. Re-run the estimation to regenerate.",
         )
 
     try:
@@ -882,10 +887,10 @@ async def get_proposal_html(request_id: str) -> dict:
         html = render_proposal(context)
         title = f"{context['project_title']} — Proposal"
     except Exception:
-        logger.exception("Proposal HTML generation failed for request_id=%s", request_id)
+        logger.exception("Proposal HTML generation failed for project_id=%s", project_id)
         raise HTTPException(status_code=500, detail="Failed to generate proposal HTML")
 
-    logger.info("Serving proposal HTML: request_id=%s", request_id)
+    logger.info("Serving proposal HTML: project_id=%s", project_id)
     return {"html": html, "title": title}
 
 
@@ -909,7 +914,7 @@ async def get_proposal_google_doc(
         503: service account credentials missing or invalid.
         502: Google API returned an unexpected error.
     """
-    cached = _estimation_cache.get(project_id)
+    cached = await _get_estimation_data(project_id)
     if cached is None:
         logger.warning("Google Doc requested for unknown project_id=%s", project_id)
         raise HTTPException(
@@ -937,18 +942,18 @@ async def get_proposal_google_doc(
         )
     except Exception as exc:
         logger.warning(
-            "Google Docs export failed for request_id=%s (%s: %s) — falling back to PDF",
-            request_id,
+            "Google Docs export failed for project_id=%s (%s: %s) — falling back to PDF",
+            project_id,
             type(exc).__name__,
             exc,
         )
         return {
-            "doc_url": f"/proposal/pdf/{request_id}",
+            "doc_url": f"/proposal/pdf/{project_id}",
             "fallback": True,
             "message": "Google Docs unavailable — opening as PDF instead.",
         }
 
-    logger.info("Google Doc ready: request_id=%s url=%s", request_id, doc_url)
+    logger.info("Google Doc ready: project_id=%s url=%s", project_id, doc_url)
     return {"doc_url": doc_url}
 
 
