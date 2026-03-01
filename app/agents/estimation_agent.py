@@ -1,3 +1,4 @@
+import json
 from typing import Dict, Any, List
 import logging
 from app.agents.base_agent import BaseAgent
@@ -7,45 +8,24 @@ logger = logging.getLogger(__name__)
 
 
 class EstimationAgent(BaseAgent):
-    
-    COMPLEXITY_BASE_HOURS = {
-        "low": 28,
-        "medium": 72,
-        "high": 140
-    }
-    
-    COMPLEXITY_FLOOR_HOURS = {
-        "low": 16,
-        "medium": 32,
-        "high": 64
-    }
-    
-    # Per-subfeature base hours by parent complexity
-    SUBFEATURE_BASE_HOURS = {
-        "low": 8,
-        "medium": 16,
-        "high": 28
-    }
-    
-    BUFFER_MULTIPLIER = 1.15
-    
+
+    BUFFER_MULTIPLIER = 1.20
+
     def __init__(self, calibration_engine: CalibrationEngine, **kwargs):
         super().__init__(**kwargs)
         self.calibration_engine = calibration_engine
-    
+
     async def execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Estimate hours for each feature at the subfeature level.
-        
-        Args:
-            input_data: Dict with 'features' key (list of feature dicts with subfeatures)
-            
-        Returns:
-            Dict with detailed estimation breakdown
+
+        Logic:
+          - If calibration data matches a subfeature/feature → use calibrated effort × 1.20
+          - If no match → ask LLM to estimate based on historical data trends × 1.20
         """
         features = input_data.get("features", [])
         original_description = input_data.get("original_description", "")
-        
+
         if not features:
             return {
                 "total_hours": 0.0,
@@ -54,81 +34,57 @@ class EstimationAgent(BaseAgent):
                 "features": [],
                 "breakdown": []
             }
-        
-        mvp_factor = self._detect_mvp_scope(original_description, features)
-        
+
+        # Collect all unmatched subfeatures for a single batched LLM call
+        unmatched_items: List[Dict[str, str]] = []
         estimated_features = []
         total_hours = 0.0
-        
+
         for feature in features:
             feature_name = feature.get("name", "")
             complexity = feature.get("complexity", "Medium").lower()
             subfeatures = feature.get("subfeatures", [])
-            
+
+            if not subfeatures:
+                subfeatures = [{"name": feature_name}]
+
             estimated_subfeatures = []
             feature_total = 0.0
             feature_calibrated = False
-            
-            if not subfeatures:
-                subfeatures = [{"name": feature_name}]
-            
-            subfeature_base = self.SUBFEATURE_BASE_HOURS.get(complexity, 16)
-            
+
             for sf in subfeatures:
                 sf_name = sf.get("name", "")
                 if not sf_name:
                     continue
-                
-                # Try calibration on the subfeature name
-                calibrated_hours = self.calibration_engine.get_calibrated_hours(
-                    sf_name,
-                    subfeature_base
-                )
-                
+
                 calibration_info = self.calibration_engine.get_calibration_info(sf_name)
-                sf_was_calibrated = calibration_info is not None and calibration_info["sample_size"] >= 2
-                
-                if sf_was_calibrated:
+                was_calibrated = calibration_info is not None and calibration_info["sample_size"] >= 2
+
+                if was_calibrated:
                     feature_calibrated = True
-                
-                final_sf_hours = calibrated_hours * self.BUFFER_MULTIPLIER * mvp_factor
-                final_sf_hours = round(final_sf_hours, 1)
-                
-                estimated_subfeatures.append({
-                    "name": sf_name,
-                    "effort": final_sf_hours,
-                    "was_calibrated": sf_was_calibrated
-                })
-                
-                feature_total += final_sf_hours
-            
-            # Also try calibration on the parent feature name for a sanity check
-            parent_base = self.COMPLEXITY_BASE_HOURS.get(complexity, 72)
-            parent_calibrated = self.calibration_engine.get_calibrated_hours(
-                feature_name,
-                parent_base
-            )
-            parent_info = self.calibration_engine.get_calibration_info(feature_name)
-            parent_was_calibrated = parent_info is not None and parent_info["sample_size"] >= 2
-            
-            if parent_was_calibrated:
-                feature_calibrated = True
-                # If the parent has strong calibration and subfeature sum is very different,
-                # use parent calibration as a floor
-                parent_calibrated_with_buffer = parent_calibrated * self.BUFFER_MULTIPLIER * mvp_factor
-                complexity_floor = self.COMPLEXITY_FLOOR_HOURS.get(complexity, 32)
-                parent_calibrated_with_buffer = max(parent_calibrated_with_buffer, complexity_floor)
-                
-                if feature_total < parent_calibrated_with_buffer * 0.5:
-                    # Subfeature sum is too low vs calibration — scale up proportionally
-                    if feature_total > 0:
-                        scale = parent_calibrated_with_buffer / feature_total
-                        for sf in estimated_subfeatures:
-                            sf["effort"] = round(sf["effort"] * scale, 1)
-                        feature_total = round(parent_calibrated_with_buffer, 1)
-            
-            feature_total = round(feature_total, 1)
-            
+                    raw_hours = calibration_info["avg_hours"]
+                    final_hours = round(raw_hours * self.BUFFER_MULTIPLIER, 1)
+
+                    estimated_subfeatures.append({
+                        "name": sf_name,
+                        "effort": final_hours,
+                        "was_calibrated": True
+                    })
+                    feature_total += final_hours
+                else:
+                    # Mark for LLM estimation — placeholder to be filled later
+                    estimated_subfeatures.append({
+                        "name": sf_name,
+                        "effort": 0.0,
+                        "was_calibrated": False,
+                        "_pending_llm": True
+                    })
+                    unmatched_items.append({
+                        "feature": feature_name,
+                        "subfeature": sf_name,
+                        "complexity": complexity
+                    })
+
             estimated_features.append({
                 "name": feature_name,
                 "complexity": complexity.capitalize(),
@@ -136,12 +92,33 @@ class EstimationAgent(BaseAgent):
                 "subfeatures": estimated_subfeatures,
                 "was_calibrated": feature_calibrated
             })
-            
-            total_hours += feature_total
-        
+
+        # Batch LLM call for all unmatched subfeatures
+        if unmatched_items:
+            llm_estimates = await self._llm_estimate_batch(unmatched_items, original_description)
+
+            # Fill in LLM estimates
+            llm_idx = 0
+            for feat in estimated_features:
+                for sf in feat["subfeatures"]:
+                    if sf.get("_pending_llm"):
+                        del sf["_pending_llm"]
+                        if llm_idx < len(llm_estimates):
+                            raw_hours = llm_estimates[llm_idx]
+                            sf["effort"] = round(raw_hours * self.BUFFER_MULTIPLIER, 1)
+                        else:
+                            # Fallback if LLM returned fewer items
+                            sf["effort"] = round(16 * self.BUFFER_MULTIPLIER, 1)
+                        feat["total_hours"] += sf["effort"]
+                        feat["total_hours"] = round(feat["total_hours"], 1)
+                        llm_idx += 1
+
+        # Recalculate totals
+        total_hours = sum(f["total_hours"] for f in estimated_features)
+
         min_hours = total_hours * 0.85
         max_hours = total_hours * 1.15
-        
+
         return {
             "total_hours": round(total_hours, 1),
             "min_hours": round(min_hours, 1),
@@ -149,43 +126,87 @@ class EstimationAgent(BaseAgent):
             "features": estimated_features,
             "breakdown": self._generate_breakdown(estimated_features)
         }
-    
-    def _detect_mvp_scope(self, description: str, features: List[Dict[str, Any]]) -> float:
-        """Detect if project is a small/MVP scope and apply reduction."""
-        if len(features) >= 12:
-            return 1.0
-        
-        description_lower = description.lower()
-        
-        mvp_signals = [
-            "basic", "simple", "small", "mvp", "minimal",
-            "flower", "flowers", "boutique", "shop", "local",
-            "small business", "startup", "beginner"
-        ]
-        
-        signal_count = sum(1 for signal in mvp_signals if signal in description_lower)
-        
-        if signal_count == 0:
-            return 1.0
-        
-        if signal_count >= 3:
-            return 0.75
-        elif signal_count >= 2:
-            return 0.80
+
+    async def _llm_estimate_batch(
+        self,
+        items: List[Dict[str, str]],
+        project_description: str
+    ) -> List[float]:
+        """
+        Ask the LLM to estimate hours for unmatched subfeatures,
+        using historical calibration data as context for trends.
+        """
+        historical_summary = self.calibration_engine.get_historical_summary()
+
+        # Build a concise historical context string
+        if historical_summary:
+            hist_lines = [
+                f"  - {entry['feature']}: {entry['avg_hours']}h (from {entry['sample_size']} projects)"
+                for entry in historical_summary[:50]  # cap to avoid token bloat
+            ]
+            historical_context = "Historical effort data from past projects:\n" + "\n".join(hist_lines)
         else:
-            return 0.85
-    
+            historical_context = "No historical data available. Use industry-standard estimates."
+
+        items_description = json.dumps(items, indent=2)
+
+        prompt = f"""You are a software effort estimation expert. Estimate development hours for each subfeature below.
+
+Project context: {project_description}
+
+{historical_context}
+
+Subfeatures to estimate (no calibration data matched these):
+{items_description}
+
+Rules:
+- Use the historical data trends above to guide your estimates.
+- Consider the complexity level of each item (low/medium/high).
+- Return ONLY a JSON object with a single key "hours" containing an array of numbers.
+- Each number is your best estimate of raw development hours for the corresponding subfeature.
+- The order must match the input order exactly.
+- Do NOT include any buffer — just raw effort hours.
+
+Example response: {{"hours": [12, 24, 8, 40]}}"""
+
+        try:
+            messages = [
+                {"role": "system", "content": "You are a precise software estimation assistant. Respond only with valid JSON."},
+                {"role": "user", "content": prompt}
+            ]
+
+            response = await self.call_llm(
+                messages=messages,
+                response_format={"type": "json_object"},
+                temperature=0,
+                max_tokens=500
+            )
+
+            parsed = self.parse_json_response(response)
+            hours_list = parsed.get("hours", [])
+
+            # Validate: must be list of numbers with correct length
+            if isinstance(hours_list, list) and len(hours_list) == len(items):
+                return [float(h) if isinstance(h, (int, float)) and h > 0 else 16.0 for h in hours_list]
+
+            logger.warning("LLM returned %d estimates for %d items, using fallback", len(hours_list), len(items))
+            return [16.0] * len(items)
+
+        except Exception as e:
+            logger.error("LLM estimation failed: %s — using fallback", str(e))
+            return [16.0] * len(items)
+
     def _generate_breakdown(self, features: List[Dict[str, Any]]) -> Dict[str, float]:
         """Generate hours breakdown by complexity level."""
         breakdown = {}
-        
+
         for feature in features:
             complexity = feature.get("complexity", "Medium")
             hours = feature.get("total_hours", 0.0)
-            
+
             if complexity not in breakdown:
                 breakdown[complexity] = 0.0
-            
+
             breakdown[complexity] += hours
-        
+
         return {k: round(v, 1) for k, v in breakdown.items()}

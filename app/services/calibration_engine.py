@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Any, Dict, List, Optional
 import re
 import logging
 
@@ -177,6 +177,25 @@ class CalibrationEngine:
         
         return best_match
     
+    def get_historical_summary(self) -> List[Dict[str, Any]]:
+        """
+        Return a summary of all calibration data for LLM context.
+        Only includes entries with sample_size >= 2.
+
+        Returns:
+            List of dicts with feature_name, avg_hours, sample_size
+        """
+        summary = []
+        for key, data in self._calibration_data.items():
+            if data["sample_size"] >= 2:
+                summary.append({
+                    "feature": key,
+                    "avg_hours": round(data["total_hours"] / data["sample_size"], 1),
+                    "sample_size": data["sample_size"]
+                })
+        summary.sort(key=lambda x: x["avg_hours"])
+        return summary
+
     def get_calibration_info(self, feature_name: str) -> Optional[Dict[str, float]]:
         """
         Get calibration info for a feature using fuzzy matching.
