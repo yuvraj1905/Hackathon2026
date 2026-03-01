@@ -2,15 +2,13 @@
 
 import { useState, useCallback, useMemo, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Brain,
   LogOut,
   Layers,
   RefreshCw,
-  Palette,
-  Server,
-  TestTube,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
@@ -23,7 +21,7 @@ import {
   ResourceRow,
   TechRec,
   calcTotal,
-  fmtNum,
+  fmtInt,
 } from "@/lib/utils";
 import { transformEstimateResponse } from "@/lib/estimateTransform";
 import { EstimatesResultsSection } from "../../components/EstimatesResultsSection";
@@ -33,12 +31,14 @@ import {
   appendProposalToHistory,
   fetchEstimate,
   fetchProjects,
+  logoutApi,
   setLastEstimateRaw,
   takeLastEstimateRaw,
   type StoredProposalSummary,
 } from "@/lib/estimateApi";
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [showResults, setShowResults] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [modules, setModules] = useState<Module[]>([]);
@@ -64,7 +64,7 @@ export default function DashboardPage() {
   const [expandedSections, setExpandedSections] = useState<
     Record<string, boolean>
   >({});
-  const [activeTab, setActiveTab] = useState("proposals");
+  const [activeTab, setActiveTab] = useState("estimates");
   const [projectDesc, setProjectDesc] = useState("");
   const [platforms, setPlatforms] = useState<string[]>([]);
   const [timeline, setTimeline] = useState("");
@@ -462,39 +462,14 @@ export default function DashboardPage() {
   const statCards = useMemo(
     () => [
       {
-        label: "Total Hours",
-        value: fmtNum(totalsByColumn.total),
+        label: "Estimation Hours",
+        value: fmtInt(totalsByColumn.total),
         meta: `${modules.length} modules · ${featureCount} features`,
         color: "text-foreground",
         iconColor: "text-primary",
         bg: "stat-blue",
         icon: Layers,
       },
-      {
-        label: "Frontend",
-        value: fmtNum(totalsByColumn.frontend),
-        color: "text-blue-400",
-        iconColor: "text-blue-400",
-        bg: "stat-blue",
-        icon: Palette,
-      },
-      {
-        label: "Backend",
-        value: fmtNum(totalsByColumn.backend),
-        color: "text-violet-400",
-        iconColor: "text-violet-400",
-        bg: "stat-purple",
-        icon: Server,
-      },
-      // {
-      //   label: "Design",
-      //   value: fmtNum(totalsByColumn.design),
-      //   meta: "Quality assurance",
-      //   color: "text-emerald-400",
-      //   iconColor: "text-emerald-400",
-      //   bg: "stat-green",
-      //   icon: TestTube,
-      // },
     ],
     [totalsByColumn, modules.length, featureCount],
   );
@@ -579,15 +554,21 @@ export default function DashboardPage() {
               </Button>
             )}
             <ThemeToggle inline className="h-8 w-8 rounded-xl border-border/40 hover:bg-primary/5" />
-            <Link href="/">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="rounded-xl text-muted-foreground hover:text-foreground"
-              >
-                <LogOut className="w-4 h-4" />
-              </Button>
-            </Link>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="rounded-xl text-muted-foreground hover:text-foreground"
+              onClick={async () => {
+                await logoutApi();
+                if (typeof window !== "undefined") {
+                  window.localStorage.removeItem("authToken");
+                  window.localStorage.removeItem("authUser");
+                }
+                router.push("/");
+              }}
+            >
+              <LogOut className="w-4 h-4" />
+            </Button>
           </div>
         </div>
       </nav>
@@ -638,6 +619,7 @@ export default function DashboardPage() {
                     statCards={statCards}
                     summaryData={summaryData}
                     proposalData={proposalData}
+                    currentProjectId={rawApiResponse?.project_id ?? null}
                     searchQuery={searchQuery}
                     onSearchChange={setSearchQuery}
                     modules={modules}

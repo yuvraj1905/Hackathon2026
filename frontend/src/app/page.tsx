@@ -1,7 +1,9 @@
 "use client";
 
+import { useEffect } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ArrowRight, Upload, Brain, Edit3, Download, Zap, Clock, BarChart3, Layers, Users, FileText, CheckCircle2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -39,6 +41,16 @@ const stats = [
 ];
 
 export default function HomePage() {
+  const router = useRouter();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("authToken");
+    if (token) {
+      router.replace("/dashboard");
+    }
+  }, [router]);
+
   return (
     <div className="min-h-screen overflow-x-hidden bg-background">
       {/* Navbar */}

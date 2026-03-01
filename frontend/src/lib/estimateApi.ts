@@ -14,6 +14,23 @@ function getAuthToken(): string | null {
   }
 }
 
+
+export async function logoutApi(): Promise<void> {
+  const token = getAuthToken();
+  const API_BASE = getApiBase();
+  if (!token) return;
+  try {
+    await fetch(`${API_BASE}/auth/logout`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  } catch {
+    throw new Error("Failed to logout. Please try again.");
+  }
+}
+
 export async function fetchEstimate(payload: {
   project_description?: string;
   file?: File;
