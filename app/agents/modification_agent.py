@@ -164,7 +164,10 @@ Keep all existing features and their subfeatures unless explicitly asked to remo
         s = (instruction or "").strip()
         if not s or "add" not in s.lower() or "feature" not in s.lower():
             return None
-        if "subfeature" in s.lower():
+        s_lower = s.lower()
+        if "subfeature" in s_lower:
+            return None
+        if "subfeatire" in s_lower or "subfeatur" in s_lower:
             return None
         # "add a logout feature" or "add lgout feature"
         m = re.search(r"\badd\s+(?:a\s+)?(.+?)\s+feature\b", s, re.I)

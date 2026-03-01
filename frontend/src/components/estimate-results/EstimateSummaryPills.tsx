@@ -2,7 +2,7 @@
 
 import { Clock } from "lucide-react";
 import { ProposalData } from "@/lib/utils";
-import { fmtNum } from "@/lib/utils";
+import { fmtInt } from "@/lib/utils";
 
 interface SummaryData {
   domain: string;
@@ -42,7 +42,7 @@ export function EstimateSummaryPills({ summaryData, proposalData }: EstimateSumm
       )}
       {proposalData && proposalData.minHours > 0 && (
         <span className="pill-muted">
-          {fmtNum(proposalData.minHours)}–{fmtNum(proposalData.maxHours)} hrs range
+          {fmtInt(proposalData.minHours)}–{fmtInt(proposalData.maxHours)} hrs range
         </span>
       )}
     </div>
