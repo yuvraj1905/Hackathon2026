@@ -39,19 +39,52 @@ Keep all sections concise."""
 
 
         tech_parts = []
+        tech_justification_parts = []
         front = tech_stack.get("frontend")
         back = tech_stack.get("backend")
+        database = tech_stack.get("database", {})
+        infrastructure = tech_stack.get("infrastructure", {})
+
         if isinstance(front, list):
             tech_parts.extend(front)
         elif isinstance(front, dict):
-            for cfg in front.values():
+            for platform_key, cfg in front.items():
                 if isinstance(cfg, dict):
-                    tech_parts.extend(str(v) for k, v in cfg.items() if v and k not in ("justification", "type"))
+                    justification = cfg.get("justification", "")
+                    names = [str(v) for k, v in cfg.items() if v and k not in ("justification", "type")]
+                    tech_parts.extend(names)
+                    if justification:
+                        tech_justification_parts.append(f"Frontend ({platform_key}): {justification}")
+
         if isinstance(back, list):
             tech_parts.extend(back)
         elif isinstance(back, dict):
-            tech_parts.extend(str(v) for k, v in back.items() if v and k not in ("justification", "type"))
+            justification = back.get("justification", "")
+            tech_parts.extend(str(v) for k, v in back.items() if v and k not in ("justification", "type", "recommendations", "best_for", "services"))
+            if justification:
+                tech_justification_parts.append(f"Backend: {justification}")
+
+        if isinstance(database, dict):
+            for slot in ("primary", "secondary", "cache", "search"):
+                db_cfg = database.get(slot)
+                if isinstance(db_cfg, dict) and db_cfg.get("name"):
+                    tech_parts.append(db_cfg["name"])
+                    j = db_cfg.get("justification", db_cfg.get("use_case", ""))
+                    if j:
+                        tech_justification_parts.append(f"Database ({db_cfg['name']}): {j}")
+
+        if isinstance(infrastructure, dict):
+            for k, v in infrastructure.items():
+                if k in ("recommendations", "mobile_deployment") or v is None:
+                    continue
+                if isinstance(v, dict) and v.get("name"):
+                    tech_parts.append(v["name"])
+                    j = v.get("justification", v.get("use_case", ""))
+                    if j:
+                        tech_justification_parts.append(f"Infrastructure ({v['name']}): {j}")
+
         tech_summary = ", ".join(tech_parts) if tech_parts else "See tech stack section"
+        tech_reasons = "\n".join(tech_justification_parts) if tech_justification_parts else ""
 
         project_context = description
         if additional_details:
@@ -61,20 +94,23 @@ Keep all sections concise."""
 Total Estimated Hours: {total_hours}
 Tech Stack: {tech_summary}
 
+Technology Justifications:
+{tech_reasons if tech_reasons else "N/A"}
+
 Project Description:
 {project_context}
 
 Key Features:
 {feature_summary}
 
-Generate a client-ready proposal. Return JSON with:
+Generate a client-ready proposal. Reference the recommended technologies and why they were chosen where relevant (especially in abstract, executive_summary, and scope_of_work). Return JSON with:
 - abstract (2-3 paragraphs providing a high-level overview of the project — what it is, why it matters, and the approach)
 - executive_summary (2-3 sentences)
 - scope_of_work (3-4 sentences)
 - deliverables (array of 5-7 items)
-- project_timeline (array of objects with "phase", "duration", "description" — e.g. [{{"phase": "Discovery & Planning", "duration": "2 weeks", "description": "Requirements gathering, architecture design, sprint planning"}}]. Include 4-6 phases covering the full project lifecycle)
-- timeline_weeks (number, based on {total_hours} hours assuming 40 hours/week)
-- team_composition (object with roles and counts, e.g. {{"Frontend Developer": 2, "Backend Developer": 2}})
+- project_timeline (array of objects with "phase", "duration", "description" — e.g. [{{"phase": "Discovery & Planning", "duration": "2 weeks", "description": "Requirements gathering, architecture design, sprint planning"}}]. Include phases for Discovery & Planning, UI/UX Design, and Development sprints ONLY. Do NOT include Testing, Deployment, or Post-Launch Support as separate phases — testing is integrated within each development sprint and deployment is part of the handover)
+- team_composition (object with roles and counts, e.g. {{"Frontend Developer": 2, "Backend Developer": 2}}). Decide team composition FIRST before calculating timeline_weeks.
+- timeline_weeks (number — calculate as {total_hours} / (total_team_size × 40), where total_team_size is the sum of all members in team_composition. This represents actual calendar weeks with the full team working in parallel. Round to 1 decimal. This should cover only core development work: discovery, design, and development. Do NOT add extra weeks for testing, deployment, or post-launch support)
 - risks (array of 3-4 items)
 - mitigation_strategies (array of 3-4 items matching risks)
 - assumptions (array of 5-8 key assumptions and considerations for successful project delivery, e.g. "Client will provide timely feedback within 2 business days", "All third-party APIs have stable documentation and SLAs")
@@ -94,11 +130,19 @@ Generate a client-ready proposal. Return JSON with:
 
         parsed = self.parse_json_response(response)
 
-        timeline_weeks = parsed.get("timeline_weeks", total_hours / 40)
+        # Compute team size for timeline fallback
+        team_comp = parsed.get("team_composition", {})
+        team_size = max(1, sum(
+            int(v) for v in team_comp.values()
+            if isinstance(v, (int, float))
+        )) if isinstance(team_comp, dict) else 1
+
+        timeline_weeks = parsed.get("timeline_weeks")
         if isinstance(timeline_weeks, (int, float)):
             timeline_weeks = round(float(timeline_weeks), 1)
         else:
-            timeline_weeks = round(total_hours / 40, 1)
+            # Fallback: total_hours / (team_size × 40 hrs/week)
+            timeline_weeks = round(total_hours / (team_size * 40), 1)
 
         return {
             "abstract": parsed.get("abstract", ""),

@@ -609,6 +609,8 @@
     <div class="section avoid-break">
       <h2>6. Technology Stack</h2>
       <p>{{ tech_justification }}</p>
+
+      <!-- Summary table -->
       <table class="data-table">
         <thead>
           <tr>
@@ -645,6 +647,29 @@
           {% endif %}
         </tbody>
       </table>
+
+      <!-- Detailed tech stack with justifications -->
+      {% if tech_stack_detailed %}
+      <h3 style="margin-top: 14pt;">Technology Recommendations &amp; Justifications</h3>
+      <table class="features-table">
+        <thead>
+          <tr>
+            <th style="width: 22%">Technology</th>
+            <th style="width: 22%">Layer</th>
+            <th style="width: 56%">Why We Recommend It</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for tech in tech_stack_detailed %}
+          <tr>
+            <td><strong>{{ tech.name }}</strong></td>
+            <td>{{ tech.layer }}</td>
+            <td>{{ tech.justification }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
     </div>
 
     <!-- ══════════════════ 8. TEAM COMPOSITION ═══════ -->

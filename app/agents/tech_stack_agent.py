@@ -34,7 +34,7 @@ class TechStackAgent(BaseAgent):
         },
         "mobile_simple": {
             "framework": "React Native",
-            "styling": "StyleSheet/NativeWind",
+            "styling": "NativeWind",
             "navigation": "React Navigation",
             "state_management": "Zustand",
             "build_service": "Expo EAS",
@@ -49,7 +49,7 @@ class TechStackAgent(BaseAgent):
         },
         "mobile_with_web": {
             "framework": "React Native",
-            "styling": "StyleSheet/NativeWind",
+            "styling": "NativeWind",
             "navigation": "React Navigation",
             "state_management": "Zustand",
             "build_service": "Expo EAS",

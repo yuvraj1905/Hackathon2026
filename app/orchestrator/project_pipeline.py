@@ -198,9 +198,12 @@ class ProjectPipeline:
             confidence_score / 100
         )
         
+        # Fallback timeline: use team size from proposal to compute calendar weeks
+        team_comp = proposal_result.get("team_composition", {})
+        fallback_team = max(1, sum(int(v) for v in team_comp.values() if isinstance(v, (int, float)))) if isinstance(team_comp, dict) else 1
         planning_result = PlanningEngine.compute_planning(
             total_hours=total_hours,
-            timeline_weeks=proposal_result.get("timeline_weeks", total_hours / 40),
+            timeline_weeks=proposal_result.get("timeline_weeks", total_hours / (fallback_team * 40)),
             features=formatted_features
         )
         
