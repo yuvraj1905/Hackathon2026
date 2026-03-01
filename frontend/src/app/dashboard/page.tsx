@@ -27,7 +27,10 @@ import {
 } from "@/lib/utils";
 import { transformEstimateResponse } from "@/lib/estimateTransform";
 import { EstimatesResultsSection } from "../../components/EstimatesResultsSection";
-import { EstimateInputSection, type LoadingStep } from "../../components/EstimateInputSection";
+import {
+  EstimateInputSection,
+  type LoadingStep,
+} from "../../components/EstimateInputSection";
 import { ProposalsSection } from "../../components/ProposalsSection";
 import {
   appendProposalToHistory,
@@ -51,20 +54,21 @@ export default function DashboardPage() {
     timeline: "",
     confidence: 0,
   });
-  const [techStackStructured, setTechStackStructured] = useState<Record<string, unknown> | null>(null);
+  const [techStackStructured, setTechStackStructured] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
   const [proposalData, setProposalData] = useState<ProposalData | null>(null);
   const [proposalsHistory, setProposalsHistory] = useState<
     StoredProposalSummary[]
   >([]);
   const [rawApiResponse, setRawApiResponse] = useState<any>(null);
   const [estimateTableKey, setEstimateTableKey] = useState(0);
-  const [taskExpanded, setTaskExpanded] = useState<Record<string, boolean>>(
-    {},
-  );
+  const [taskExpanded, setTaskExpanded] = useState<Record<string, boolean>>({});
   const [expandedSections, setExpandedSections] = useState<
     Record<string, boolean>
   >({});
-  const [activeTab, setActiveTab] = useState("proposals");
+  const [activeTab, setActiveTab] = useState("estimates");
   const [projectDesc, setProjectDesc] = useState("");
   const [platforms, setPlatforms] = useState<string[]>([]);
   const [timeline, setTimeline] = useState("");
@@ -102,7 +106,14 @@ export default function DashboardPage() {
     const raw = takeLastEstimateRaw();
     if (!raw) return;
     try {
-      const { modules: mods, techStack: ts, techStackStructured: tss, resources: res, summary, proposal } = transformEstimateResponse(raw);
+      const {
+        modules: mods,
+        techStack: ts,
+        techStackStructured: tss,
+        resources: res,
+        summary,
+        proposal,
+      } = transformEstimateResponse(raw);
       setModules(mods);
       setTechStack(ts);
       setTechStackStructured(tss);
@@ -112,37 +123,53 @@ export default function DashboardPage() {
       setRawApiResponse(raw);
       setShowResults(true);
       setActiveTab("estimates");
-      fetchProjects().then(setProposalsHistory).catch(() => { });
+      fetchProjects()
+        .then(setProposalsHistory)
+        .catch(() => {});
     } catch {
       // ignore
     }
   }, []);
 
   const togglePlatform = useCallback((value: string) => {
-    setPlatforms((prev) => (prev.includes(value) ? prev.filter((p) => p !== value) : [...prev, value]));
+    setPlatforms((prev) =>
+      prev.includes(value) ? prev.filter((p) => p !== value) : [...prev, value],
+    );
   }, []);
 
-  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0] ?? null;
-    setUploadedFile(file);
-    if (file) toast({ title: `File selected: ${file.name}` });
-  }, [toast]);
+  const handleFileChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0] ?? null;
+      setUploadedFile(file);
+      if (file) toast({ title: `File selected: ${file.name}` });
+    },
+    [toast],
+  );
 
-  const handleFileDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const file = e.dataTransfer.files?.[0] ?? null;
-    setUploadedFile(file);
-    if (file) toast({ title: `File selected: ${file.name}` });
-  }, [toast]);
+  const handleFileDrop = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      const file = e.dataTransfer.files?.[0] ?? null;
+      setUploadedFile(file);
+      if (file) toast({ title: `File selected: ${file.name}` });
+    },
+    [toast],
+  );
 
   const handleGenerate = useCallback(async () => {
     const desc = projectDesc.trim();
     if (!desc && !uploadedFile) {
-      toast({ title: "Enter a description or upload a file", variant: "destructive" });
+      toast({
+        title: "Enter a description or upload a file",
+        variant: "destructive",
+      });
       return;
     }
     if (desc.length > 0 && desc.length < 10) {
-      toast({ title: "Description must be at least 10 characters", variant: "destructive" });
+      toast({
+        title: "Description must be at least 10 characters",
+        variant: "destructive",
+      });
       return;
     }
     setLoading(true);
@@ -156,9 +183,18 @@ export default function DashboardPage() {
         platforms: platforms.length ? platforms : undefined,
         timeline: timeline || undefined,
       });
-      appendProposalToHistory(raw, { title: projectDesc || uploadedFile?.name });
+      appendProposalToHistory(raw, {
+        title: projectDesc || uploadedFile?.name,
+      });
       setLastEstimateRaw(raw);
-      const { modules: mods, techStack: ts, techStackStructured: tss, resources: res, summary, proposal } = transformEstimateResponse(raw);
+      const {
+        modules: mods,
+        techStack: ts,
+        techStackStructured: tss,
+        resources: res,
+        summary,
+        proposal,
+      } = transformEstimateResponse(raw);
       setModules(mods);
       setTechStack(ts);
       setTechStackStructured(tss);
@@ -171,10 +207,19 @@ export default function DashboardPage() {
       toast({ title: "Estimation ready!" });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "";
-      const isNet = msg === "Failed to fetch" || msg.includes("NetworkError") || msg.includes("Load failed");
-      const userMsg = isNet ? "Request did not complete. Estimation can take 1–2 minutes—try again or check the backend." : msg || "Estimation failed.";
+      const isNet =
+        msg === "Failed to fetch" ||
+        msg.includes("NetworkError") ||
+        msg.includes("Load failed");
+      const userMsg = isNet
+        ? "Request did not complete. Estimation can take 1–2 minutes—try again or check the backend."
+        : msg || "Estimation failed.";
       setEstimateError(userMsg);
-      toast({ title: "Estimation failed", description: userMsg, variant: "destructive" });
+      toast({
+        title: "Estimation failed",
+        description: userMsg,
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
       setLoadingStep("idle");
@@ -184,9 +229,7 @@ export default function DashboardPage() {
   const toggleModule = useCallback(
     (id: string) =>
       setModules((p) =>
-        p.map((m) =>
-          m.id === id ? { ...m, expanded: !m.expanded } : m,
-        ),
+        p.map((m) => (m.id === id ? { ...m, expanded: !m.expanded } : m)),
       ),
     [],
   );
@@ -200,7 +243,10 @@ export default function DashboardPage() {
       const taskIdsWithChildren = modules.flatMap((m) =>
         m.tasks.filter((t) => (t.children?.length ?? 0) > 0).map((t) => t.id),
       );
-      return { ...prev, ...Object.fromEntries(taskIdsWithChildren.map((id) => [id, true])) };
+      return {
+        ...prev,
+        ...Object.fromEntries(taskIdsWithChildren.map((id) => [id, true])),
+      };
     });
   }, [modules]);
   const collapseAll = useCallback(() => {
@@ -254,22 +300,13 @@ export default function DashboardPage() {
                 });
                 const p = { ...t, children: kids };
                 if (kids?.length) {
-                  p.frontend = kids.reduce(
-                    (a, c) => a + c.frontend,
-                    0,
-                  );
-                  p.backend = kids.reduce(
-                    (a, c) => a + c.backend,
-                    0,
-                  );
+                  p.frontend = kids.reduce((a, c) => a + c.frontend, 0);
+                  p.backend = kids.reduce((a, c) => a + c.backend, 0);
                   p.integration = kids.reduce(
                     (a, c) => a + (c.integration ?? 0),
                     0,
                   );
-                  p.testing = kids.reduce(
-                    (a, c) => a + c.testing,
-                    0,
-                  );
+                  p.testing = kids.reduce((a, c) => a + c.testing, 0);
                   p.total = calcTotal(p);
                 }
                 return p;
@@ -321,27 +358,16 @@ export default function DashboardPage() {
               ...m,
               tasks: m.tasks.map((t) => {
                 if (t.id !== taskId) return t;
-                const kids = t.children?.filter(
-                  (c) => c.id !== childId,
-                );
+                const kids = t.children?.filter((c) => c.id !== childId);
                 const u = { ...t, children: kids };
                 if (kids?.length) {
-                  u.frontend = kids.reduce(
-                    (a, c) => a + c.frontend,
-                    0,
-                  );
-                  u.backend = kids.reduce(
-                    (a, c) => a + c.backend,
-                    0,
-                  );
+                  u.frontend = kids.reduce((a, c) => a + c.frontend, 0);
+                  u.backend = kids.reduce((a, c) => a + c.backend, 0);
                   u.integration = kids.reduce(
                     (a, c) => a + (c.integration ?? 0),
                     0,
                   );
-                  u.testing = kids.reduce(
-                    (a, c) => a + c.testing,
-                    0,
-                  );
+                  u.testing = kids.reduce((a, c) => a + c.testing, 0);
                   u.total = calcTotal(u);
                 }
                 return u;
@@ -425,9 +451,7 @@ export default function DashboardPage() {
             m.name.toLowerCase().includes(q),
         ),
       }))
-      .filter(
-        (m) => m.name.toLowerCase().includes(q) || m.tasks.length > 0,
-      );
+      .filter((m) => m.name.toLowerCase().includes(q) || m.tasks.length > 0);
   }, [modules, searchQuery]);
 
   const totalsByColumn = useMemo(
@@ -513,8 +537,7 @@ export default function DashboardPage() {
             background:
               "radial-gradient(circle, hsl(230 94% 68% / 0.1), transparent 55%)",
             filter: "blur(90px)",
-            animation:
-              "aurora-float 20s ease-in-out infinite alternate",
+            animation: "aurora-float 20s ease-in-out infinite alternate",
           }}
         />
         <div
@@ -540,10 +563,7 @@ export default function DashboardPage() {
         <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-primary/20 to-transparent pointer-events-none" />
         <div className="container mx-auto flex items-center justify-between h-14 px-4">
           <div className="flex items-center gap-3">
-            <Link
-              href="/"
-              className="flex items-center gap-2.5 group"
-            >
+            <Link href="/" className="flex items-center gap-2.5 group">
               <div className="w-9 h-9 rounded-xl gradient-bg flex items-center justify-center shrink-0 shadow-lg shadow-primary/25 group-hover:shadow-primary/40 group-hover:scale-105 transition-all duration-300">
                 <Brain className="w-5 h-5 text-white" />
               </div>
@@ -578,7 +598,10 @@ export default function DashboardPage() {
                 <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Clear
               </Button>
             )}
-            <ThemeToggle inline className="h-8 w-8 rounded-xl border-border/40 hover:bg-primary/5" />
+            <ThemeToggle
+              inline
+              className="h-8 w-8 rounded-xl border-border/40 hover:bg-primary/5"
+            />
             <Link href="/">
               <Button
                 variant="ghost"
@@ -594,7 +617,11 @@ export default function DashboardPage() {
 
       {/* ── Main ───────────────────────────────────────────────────── */}
       <div className="container mx-auto px-4 py-8 relative z-10">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+        <Tabs
+          value={activeTab}
+          onValueChange={setActiveTab}
+          className="space-y-6"
+        >
           <div className="flex items-center justify-between">
             <TabsList>
               <TabsTrigger value="proposals">Proposals</TabsTrigger>
