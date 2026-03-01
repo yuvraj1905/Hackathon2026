@@ -925,6 +925,107 @@ def _flatten_tech_layer(value: Any) -> list[str]:
     return out
 
 
+def _extract_tech_with_justifications(tech_stack: dict[str, Any]) -> list[dict[str, str]]:
+    """
+    Extract all recommended technologies with their justifications from the tech stack.
+
+    Returns a list of dicts: [{"name": ..., "layer": ..., "justification": ...}, ...]
+    """
+    result: list[dict[str, str]] = []
+
+    # --- Frontend ---
+    frontend = tech_stack.get("frontend", {})
+    if isinstance(frontend, dict):
+        for platform_key, config in frontend.items():
+            if not isinstance(config, dict):
+                continue
+            justification = config.get("justification", "")
+            skip = {"justification", "type"}
+            for k, v in config.items():
+                if k in skip or v is None:
+                    continue
+                s = str(v).strip()
+                if s:
+                    label = f"Frontend ({platform_key.replace('_', ' ').title()})"
+                    result.append({"name": s, "layer": label, "justification": justification})
+                    justification = ""  # only attach justification to the first item in platform
+
+    # --- Backend ---
+    backend = tech_stack.get("backend", {})
+    if isinstance(backend, dict):
+        justification = backend.get("justification", "")
+        skip = {"justification", "type", "recommendations", "best_for", "services"}
+        for k, v in backend.items():
+            if k in skip or v is None:
+                continue
+            s = str(v).strip()
+            if s:
+                result.append({"name": s, "layer": "Backend", "justification": justification})
+                justification = ""
+
+    # --- Database ---
+    database = tech_stack.get("database", {})
+    if isinstance(database, dict):
+        for slot in ("primary", "secondary", "cache", "search"):
+            db_config = database.get(slot)
+            if isinstance(db_config, dict) and db_config.get("name"):
+                result.append({
+                    "name": db_config["name"],
+                    "layer": f"Database ({slot.title()})",
+                    "justification": db_config.get("justification", db_config.get("use_case", "")),
+                })
+
+    # --- Infrastructure ---
+    infrastructure = tech_stack.get("infrastructure", {})
+    if isinstance(infrastructure, dict):
+        skip = {"recommendations", "mobile_deployment"}
+        for k, v in infrastructure.items():
+            if k in skip or v is None:
+                continue
+            if isinstance(v, dict) and v.get("name"):
+                result.append({
+                    "name": v["name"],
+                    "layer": "Infrastructure",
+                    "justification": v.get("justification", v.get("use_case", "")),
+                })
+        # Mobile deployment sub-items
+        mobile_deploy = infrastructure.get("mobile_deployment", {})
+        if isinstance(mobile_deploy, dict):
+            for mk, mv in mobile_deploy.items():
+                if isinstance(mv, dict) and mv.get("name"):
+                    result.append({
+                        "name": mv["name"],
+                        "layer": "Mobile Deployment",
+                        "justification": mv.get("justification", mv.get("use_case", "")),
+                    })
+                elif isinstance(mv, dict):
+                    for sub_k, sub_v in mv.items():
+                        if isinstance(sub_v, dict) and sub_v.get("name"):
+                            result.append({
+                                "name": sub_v["name"],
+                                "layer": "Mobile Deployment",
+                                "justification": sub_v.get("justification", sub_v.get("use_case", "")),
+                            })
+
+    # --- Third-party Services ---
+    third_party = tech_stack.get("third_party_services", {})
+    if isinstance(third_party, dict):
+        for category, config in third_party.items():
+            if not isinstance(config, dict):
+                continue
+            services = config.get("services", [])
+            if isinstance(services, list):
+                for svc in services:
+                    if isinstance(svc, dict) and svc.get("name"):
+                        result.append({
+                            "name": svc["name"],
+                            "layer": f"Third-party ({category.replace('_', ' ').title()})",
+                            "justification": svc.get("justification", ""),
+                        })
+
+    return result
+
+
 def _build_proposal_context(data: dict[str, Any]) -> dict[str, Any]:
     """
     Build the Jinja2 template context from a cached estimation result dict.
@@ -993,6 +1094,7 @@ def _build_proposal_context(data: dict[str, Any]) -> dict[str, Any]:
         "tech_infrastructure": _flatten_tech_layer(tech_stack.get("infrastructure")),
         "tech_third_party": _flatten_tech_layer(tech_stack.get("third_party_services")),
         "tech_justification": tech_stack.get("justification", ""),
+        "tech_stack_detailed": _extract_tech_with_justifications(tech_stack),
         "team_composition": proposal.get(
             "team_composition", planning.get("team_recommendation", {})
         ),

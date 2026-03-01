@@ -40,13 +40,26 @@ class DiagramGenerator:
 
         C = DiagramGenerator
 
-        def _layer_box(label: str, techs: list[str], bg: str, color: str = C._WHITE) -> str:
-            tech_str = ", ".join(techs) if techs else "—"
+        def _tech_chips(techs: list[str], chip_bg: str, chip_color: str) -> str:
+            """Render individual technology chips inside a layer."""
+            if not techs:
+                return '<span style="font-size:8pt; opacity:0.7;">—</span>'
+            chips = "".join(
+                f'<span style="display:inline-block; background:{chip_bg}; color:{chip_color};'
+                f' padding:2pt 7pt; margin:2pt 3pt; font-size:7.5pt; font-weight:600;'
+                f' border-radius:3pt; border:0.5pt solid {chip_color};">{t}</span>'
+                for t in techs
+            )
+            return f'<div style="margin-top:4pt;">{chips}</div>'
+
+        def _layer_box(label: str, techs: list[str], bg: str, chip_bg: str,
+                       chip_color: str, color: str = C._WHITE) -> str:
+            chips_html = _tech_chips(techs, chip_bg, chip_color)
             return (
-                f'<td style="background:{bg}; color:{color}; padding:10pt 14pt;'
+                f'<td style="background:{bg}; color:{color}; padding:12pt 14pt;'
                 f' text-align:center; border:1pt solid {C._BORDER_BLUE};">'
                 f'<div style="font-weight:700; font-size:9.5pt; margin-bottom:2pt;">{label}</div>'
-                f'<div style="font-size:8pt; opacity:0.9;">{tech_str}</div>'
+                f'{chips_html}'
                 f'</td>'
             )
 
@@ -56,20 +69,21 @@ class DiagramGenerator:
                 f' font-size:12pt; color:{C._MID_BLUE}; border:none;">&#9660;</td></tr>'
             )
 
-        layers: list[tuple[str, list[str], str]] = []
+        # (label, techs, bg_color, chip_bg, chip_text_color)
+        layers: list[tuple[str, list[str], str, str, str]] = []
         if frontend:
-            layers.append(("Client / Frontend", frontend, C._DARK_BLUE))
+            layers.append(("Client / Frontend", frontend, C._DARK_BLUE, "rgba(255,255,255,0.2)", C._WHITE))
         if backend:
-            layers.append(("Backend / API", backend, C._MID_BLUE))
+            layers.append(("Backend / API", backend, C._MID_BLUE, "rgba(255,255,255,0.2)", C._WHITE))
         if database:
-            layers.append(("Database", database, C._LIGHT_BLUE))
+            layers.append(("Database", database, C._LIGHT_BLUE, "rgba(255,255,255,0.25)", C._WHITE))
         if infrastructure:
-            layers.append(("Infrastructure", infrastructure, C._SOFT_BLUE))
+            layers.append(("Infrastructure", infrastructure, C._SOFT_BLUE, "rgba(255,255,255,0.25)", C._WHITE))
 
         # Build main column rows
         main_rows: list[str] = []
-        for i, (label, techs, bg) in enumerate(layers):
-            main_rows.append(f'<tr>{_layer_box(label, techs, bg)}</tr>')
+        for i, (label, techs, bg, chip_bg, chip_color) in enumerate(layers):
+            main_rows.append(f'<tr>{_layer_box(label, techs, bg, chip_bg, chip_color)}</tr>')
             if i < len(layers) - 1:
                 main_rows.append(_arrow_row())
 
@@ -82,15 +96,17 @@ class DiagramGenerator:
         # If third-party services exist, wrap in a side-by-side table
         if third_party:
             tp_items = "".join(
-                f'<div style="padding:3pt 0; font-size:8pt; border-bottom:0.5pt solid {C._BORDER_BLUE};">{t}</div>'
+                f'<div style="padding:4pt 6pt; margin:2pt 0; font-size:8pt; font-weight:600;'
+                f' background:{C._WHITE}; border:0.5pt solid {C._BORDER_BLUE};'
+                f' border-radius:3pt; text-align:center;">{t}</div>'
                 for t in third_party
             )
             sidebar = (
                 f'<td style="width:28%; vertical-align:top; padding-left:10pt;">'
                 f'<table style="border-collapse:collapse; width:100%;">'
-                f'<tr><td style="background:{C._PALE_BLUE}; color:{C._DARK_BLUE}; padding:8pt 10pt;'
+                f'<tr><td style="background:{C._PALE_BLUE}; color:{C._DARK_BLUE}; padding:10pt 10pt;'
                 f' text-align:center; border:1pt solid {C._BORDER_BLUE};">'
-                f'<div style="font-weight:700; font-size:9pt; margin-bottom:4pt;">Third-party Services</div>'
+                f'<div style="font-weight:700; font-size:9pt; margin-bottom:6pt;">Third-party Services</div>'
                 f'{tp_items}'
                 f'</td></tr></table></td>'
             )
