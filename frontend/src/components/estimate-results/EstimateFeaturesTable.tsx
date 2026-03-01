@@ -1,10 +1,10 @@
 "use client";
 
-import React, { Fragment } from "react";
+import { Fragment } from "react";
 import { ChevronDown, ChevronRight, Plus, Search, Trash2 } from "lucide-react";
 import type { Module } from "@/types/dashboard";
-import { complexityBadge, fmtNum } from "@/lib/utils";
-import { EditableCell, EditableNameCell } from "./EditableEstimateCells";
+import { complexityBadge, fmtInt } from "@/lib/utils";
+import { EditableNameCell } from "./EditableEstimateCells";
 
 interface TotalsByColumn {
   frontend: number;
@@ -44,26 +44,31 @@ export function EstimateFeaturesTable({
   toggleModule,
   toggleTask,
   updateTaskName,
-  updateTaskField,
   addTask,
   addSubFeature,
   deleteTask,
 }: EstimateFeaturesTableProps) {
   if (filteredModules.length > 0) {
     return (
-      <div className="card-spotlight table-premium overflow-hidden rounded-2xl">
+      <div className="card-spotlight table-premium overflow-hidden rounded-2xl border border-border/40 shadow-lg shadow-black/5">
         <div className="overflow-x-auto">
-          <table className="estimation-table">
+          <table className="w-full min-w-[520px] table-fixed text-left text-sm">
+            <colgroup>
+              <col className="w-9" />
+              <col style={{ width: "36%" }} />
+              <col className="w-24" />
+              <col className="w-28" />
+              <col className="w-20" />
+              <col className="w-20" />
+            </colgroup>
             <thead>
-              <tr>
-                <th className="w-10 text-center">#</th>
-                <th className="min-w-[200px]">Feature</th>
-                <th className="min-w-[200px]">Subfeature</th>
-                <th className="w-20 text-center">FE hrs</th>
-                <th className="w-20 text-center">BE hrs</th>
-                <th className="w-20 text-center">Test</th>
-                <th className="w-20 text-center text-primary">Total</th>
-                <th className="w-20 text-center">Actions</th>
+              <tr className="border-b border-border/50 bg-muted/20">
+                <th className="py-2 pl-2 pr-1 text-center font-semibold text-muted-foreground">#</th>
+                <th className="py-2 pl-2 pr-2 font-semibold">Feature</th>
+                <th className="py-2 px-1.5 font-semibold text-muted-foreground">Complexity</th>
+                <th className="py-2 px-1.5 text-muted-foreground">Subfeatures</th>
+                <th className="py-2 px-1.5 text-right font-semibold text-primary">Development Hours</th>
+                <th className="py-2 pl-1.5 pr-2 text-center font-semibold text-muted-foreground">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -71,32 +76,35 @@ export function EstimateFeaturesTable({
                 const offset = filteredModules.slice(0, modIdx).reduce((a, m) => a + m.tasks.length, 0);
                 return (
                   <Fragment key={`mod-${mod.id}`}>
-                    <tr className="module-row cursor-pointer" onClick={() => toggleModule(mod.id)}>
-                      <td className="text-center text-xs font-mono text-muted-foreground">{mod.id}</td>
-                      <td>
-                        <div className="flex items-center gap-2">
+                    <tr
+                      className="cursor-pointer border-b border-border/30 bg-muted/10 transition-colors hover:bg-muted/20"
+                      onClick={() => toggleModule(mod.id)}
+                    >
+                      <td className="py-2 pl-2 pr-1 text-center text-xs font-mono text-muted-foreground" />
+                      <td className="py-2 pl-2 pr-2">
+                        <div className="flex min-w-0 items-center gap-1.5">
                           {mod.expanded ? (
-                            <ChevronDown className="h-4 w-4 shrink-0 text-primary/60" />
+                            <ChevronDown className="h-4 w-4 shrink-0 text-primary/70" />
                           ) : (
                             <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
                           )}
-                          <span className="font-bold">{mod.name}</span>
+                          <span className="truncate font-semibold tracking-tight">{mod.name}</span>
                         </div>
                       </td>
-                      <td className="text-muted-foreground text-sm">
-                        {mod.tasks.length} features
+                      <td className="py-2 px-1.5 text-muted-foreground/70">—</td>
+                      <td className="py-2 px-1.5 text-muted-foreground">
+                        {mod.tasks.length} feature{mod.tasks.length !== 1 ? "s" : ""}
                       </td>
-                      <td className="text-center text-sm font-medium font-mono">{fmtNum(mod.tasks.reduce((a, t) => a + t.frontend, 0))}</td>
-                      <td className="text-center text-sm font-medium font-mono">{fmtNum(mod.tasks.reduce((a, t) => a + t.backend, 0))}</td>
-                      <td className="text-center text-sm font-medium font-mono">{fmtNum(mod.tasks.reduce((a, t) => a + t.testing, 0))}</td>
-                      <td className="text-center font-mono text-sm font-bold text-primary">{fmtNum(mod.tasks.reduce((a, t) => a + t.total, 0))}</td>
-                      <td className="text-center">
+                      <td className="py-2 px-1.5 text-right font-mono font-semibold tabular-nums text-primary">
+                        {fmtInt(mod.tasks.reduce((a, t) => a + t.total, 0))}
+                      </td>
+                      <td className="py-2 pl-1.5 pr-2 text-center">
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
                             addTask(mod.id);
                           }}
-                          className="rounded-lg p-1 text-primary/60 transition-colors hover:bg-primary/8 hover:text-primary"
+                          className="rounded-lg p-1.5 text-primary/70 transition-colors hover:bg-primary/15 hover:text-primary text-sm"
                           title="Add feature"
                         >
                           <Plus className="h-4 w-4" />
@@ -106,66 +114,70 @@ export function EstimateFeaturesTable({
                     {mod.expanded &&
                       mod.tasks.map((task, tIdx) => (
                         <Fragment key={task.id}>
-                          <tr className="transition-colors hover:bg-primary/3">
-                            <td className="text-center text-xs font-mono text-muted-foreground">{offset + tIdx + 1}</td>
-                            <td className="pl-6">
-                              <div className="flex items-center gap-1.5">
-                                {task.complexity && (
-                                  <span className={`${complexityBadge(task.complexity)} hidden md:inline shrink-0`}>
-                                    {task.complexity.replace("_", " ")}
-                                  </span>
-                                )}
+                          <tr className="border-b border-border/20 transition-colors hover:bg-background/50 align-top">
+                            <td className="py-2 pl-2 pr-1 align-top text-center text-xs font-mono text-muted-foreground">
+                              {offset + tIdx + 1}
+                            </td>
+                            <td className="py-2 pl-3 pr-2 align-top">
+                              <div className="min-w-0">
                                 <EditableNameCell value={task.name} onChange={(v) => updateTaskName(mod.id, task.id, v)} />
                               </div>
                             </td>
-                            <td>
-                              <div className="flex items-center gap-1.5">
-                                {(task.children?.length ?? 0) > 0 ? (
-                                  <>
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        toggleTask(task.id);
-                                      }}
-                                      className="shrink-0 rounded p-0.5 hover:bg-muted/30"
-                                    >
-                                      {taskExpanded[task.id] ? (
-                                        <ChevronDown className="h-3.5 w-3.5" />
-                                      ) : (
-                                        <ChevronRight className="h-3.5 w-3.5" />
-                                      )}
-                                    </button>
+                            <td className="py-2 px-1.5 align-top">
+                              {task.complexity ? (
+                                <span className={`${complexityBadge(task.complexity)} inline-block`}>
+                                  {String(task.complexity).replace("_", " ")}
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground/60">—</span>
+                              )}
+                            </td>
+                            <td className="py-2 px-1.5 align-top">
+                              {(task.children?.length ?? 0) > 0 ? (
+                                <div className="min-w-0">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleTask(task.id);
+                                    }}
+                                    className="flex items-center gap-1 rounded p-0.5 hover:bg-muted/40 text-left w-full"
+                                  >
+                                    {taskExpanded[task.id] ? (
+                                      <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                    ) : (
+                                      <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                    )}
                                     <span className="text-muted-foreground text-sm">
-                                      {task.children!.length} subfeature{task.children!.length !== 1 ? "s" : ""}
+                                      {task.children!.length} Sub-features
                                     </span>
-                                  </>
-                                ) : (
-                                  <span className="text-muted-foreground/60 text-sm">0 subfeatures</span>
-                                )}
-                              </div>
+                                  </button>
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground/70 text-sm">0 Sub-features</span>
+                              )}
                             </td>
-                            <td className="text-center">
-                              <EditableCell value={task.frontend} onChange={(v) => updateTaskField(mod.id, task.id, "frontend", v)} />
+                            <td className="py-2 px-1.5 align-top text-right font-mono font-medium tabular-nums text-primary">
+                              {fmtInt(task.total)}
                             </td>
-                            <td className="text-center">
-                              <EditableCell value={task.backend} onChange={(v) => updateTaskField(mod.id, task.id, "backend", v)} />
-                            </td>
-                            <td className="text-center">
-                              <EditableCell value={task.testing} onChange={(v) => updateTaskField(mod.id, task.id, "testing", v)} />
-                            </td>
-                            <td className="text-center text-sm font-semibold font-mono text-primary">{fmtNum(task.total)}</td>
-                            <td className="text-center">
+                            <td className="py-2 pl-1.5 pr-2 align-top">
                               <div className="flex items-center justify-center gap-0.5">
                                 <button
-                                  onClick={() => addSubFeature(mod.id, task.id)}
-                                  className="rounded-lg p-1 text-primary/50 transition-all hover:bg-primary/8 hover:text-primary"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    addSubFeature(mod.id, task.id);
+                                  }}
+                                  className="rounded-lg p-1.5 text-primary/60 transition-colors hover:bg-primary/15 hover:text-primary"
                                   title="Add sub-feature"
                                 >
                                   <Plus className="h-3.5 w-3.5" />
                                 </button>
                                 <button
-                                  onClick={() => deleteTask(mod.id, task.id)}
-                                  className="rounded-lg p-1 text-destructive/50 transition-all hover:bg-destructive/8 hover:text-destructive"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    deleteTask(mod.id, task.id);
+                                  }}
+                                  className="rounded-lg p-1.5 text-destructive/60 transition-colors hover:bg-destructive/15 hover:text-destructive"
                                   title="Delete"
                                 >
                                   <Trash2 className="h-3.5 w-3.5" />
@@ -175,44 +187,30 @@ export function EstimateFeaturesTable({
                           </tr>
                           {taskExpanded[task.id] &&
                             task.children?.map((child) => (
-                              <tr key={child.id} className="subtask-row">
-                                <td />
-                                <td className="pl-8 text-muted-foreground text-sm" />
-                                <td className="pl-10 text-sm">
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="text-xs text-muted-foreground/40">↳</span>
+                              <tr key={child.id} className="border-b border-border/10 bg-muted/5">
+                                <td className="py-1.5 pl-2 pr-1" />
+                                <td className="py-1.5 pl-3 pr-2" />
+                                <td className="py-1.5 px-1.5" />
+                                <td className="py-1.5 pl-3 pr-2 align-top">
+                                  <div className="flex min-w-0 items-start gap-1.5">
+                                    <span className="shrink-0 text-muted-foreground/60">–</span>
                                     <EditableNameCell
                                       value={child.name}
                                       onChange={(v) => updateTaskName(mod.id, task.id, v, child.id)}
-                                      className="text-sm"
+                                      className="min-w-0 text-sm text-muted-foreground break-words whitespace-normal leading-snug"
                                     />
                                   </div>
                                 </td>
-                                <td className="text-center">
-                                  <EditableCell
-                                    value={child.frontend}
-                                    onChange={(v) => updateTaskField(mod.id, task.id, "frontend", v, child.id)}
-                                  />
+                                <td className="py-1.5 px-1.5 text-right font-mono text-sm tabular-nums text-primary">
+                                  {fmtInt(child.total)}
                                 </td>
-                                <td className="text-center">
-                                  <EditableCell
-                                    value={child.backend}
-                                    onChange={(v) => updateTaskField(mod.id, task.id, "backend", v, child.id)}
-                                  />
-                                </td>
-                                <td className="text-center">
-                                  <EditableCell
-                                    value={child.testing}
-                                    onChange={(v) => updateTaskField(mod.id, task.id, "testing", v, child.id)}
-                                  />
-                                </td>
-                                <td className="text-center text-sm font-medium font-mono text-primary">{fmtNum(child.total)}</td>
-                                <td className="text-center">
+                                <td className="py-1.5 pl-1.5 pr-2 text-center">
                                   <button
                                     onClick={() => deleteTask(mod.id, task.id, child.id)}
-                                    className="rounded-lg p-1 text-destructive/50 hover:bg-destructive/8 hover:text-destructive"
+                                    className="rounded p-1.5 text-destructive/60 transition-colors hover:bg-destructive/15 hover:text-destructive"
+                                    title="Delete subfeature"
                                   >
-                                    <Trash2 className="h-3 w-3" />
+                                    <Trash2 className="h-3.5 w-3.5" />
                                   </button>
                                 </td>
                               </tr>
@@ -222,38 +220,22 @@ export function EstimateFeaturesTable({
                   </Fragment>
                 );
               })}
-              <tr className="font-bold" style={{ background: "hsl(var(--muted) / 0.4)" }}>
-                <td />
-                <td colSpan={2} className="text-sm">
+              <tr className="border-t-2 border-primary/20 bg-primary/5 font-semibold">
+                <td className="py-2.5 pl-2 pr-1" />
+                <td colSpan={3} className="py-2.5 pl-2 pr-2">
                   Grand Total
                 </td>
-                <td className="text-center text-sm font-mono text-primary">{fmtNum(totalsByColumn.frontend)}</td>
-                <td className="text-center text-sm font-mono text-primary">{fmtNum(totalsByColumn.backend)}</td>
-                <td className="text-center text-sm font-mono text-primary">{fmtNum(totalsByColumn.testing)}</td>
-                <td className="text-center font-mono text-base font-bold text-primary">{fmtNum(totalsByColumn.total)}</td>
-                <td />
+                <td className="py-2.5 px-1.5 text-right font-mono text-base tabular-nums text-primary">
+                  {fmtInt(totalsByColumn.total)}
+                </td>
+                <td className="py-2.5 pl-1.5 pr-2" />
               </tr>
             </tbody>
           </table>
         </div>
-        <div
-          className="flex flex-wrap items-center justify-between gap-4 border-t border-border/30 px-5 py-4"
-          style={{ background: "hsl(var(--muted) / 0.1)" }}
-        >
-          <div className="flex flex-wrap items-center gap-5 text-xs text-muted-foreground">
-            {[
-              { color: "bg-blue-500", label: "Frontend", val: totalsByColumn.frontend },
-              { color: "bg-violet-500", label: "Backend", val: totalsByColumn.backend },
-              { color: "bg-emerald-500", label: "Testing", val: totalsByColumn.testing },
-            ].map((l) => (
-              <span key={l.label} className="flex items-center gap-2">
-                <span className={`h-2 w-2 rounded-full ${l.color}`} /> {l.label}{" "}
-                <strong className="font-mono text-foreground">{fmtNum(l.val)}</strong>
-              </span>
-            ))}
-          </div>
-          <div className="rounded-xl border border-primary/15 bg-primary/8 px-5 py-2.5 text-sm font-medium">
-            Grand Total <strong className="ml-1.5 font-mono text-primary">{fmtNum(totalsByColumn.total)} hrs</strong>
+        <div className="flex flex-wrap items-center justify-end border-t border-border/30 bg-muted/10 px-4 py-3">
+          <div className="rounded-lg border border-primary/20 bg-primary/10 px-4 py-2 text-sm font-medium">
+            Total effort <strong className="ml-1 font-mono text-primary">{fmtInt(totalsByColumn.total)} hrs</strong>
           </div>
         </div>
       </div>

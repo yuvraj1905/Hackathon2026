@@ -1,7 +1,9 @@
 "use client";
 
+import { useEffect } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowRight,
   Upload,
@@ -10,7 +12,6 @@ import {
   Download,
   Zap,
   Clock,
-  BarChart3,
   Layers,
   Users,
   FileText,
@@ -119,6 +120,16 @@ const stats = [
 ];
 
 export default function HomePage() {
+  const router = useRouter();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("authToken");
+    if (token) {
+      router.replace("/dashboard");
+    }
+  }, [router]);
+
   return (
     <div className="min-h-screen overflow-x-hidden bg-background">
       {/* Navbar */}

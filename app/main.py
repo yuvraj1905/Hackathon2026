@@ -8,6 +8,7 @@ if os.path.exists("/opt/homebrew/lib"):
 
 from fastapi import FastAPI, HTTPException, Request, Depends, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.responses import StreamingResponse
 from contextlib import asynccontextmanager
 from io import BytesIO
@@ -36,6 +37,7 @@ from app.services.auth_service import (
     authenticate_user,
     create_access_token,
     get_current_user,
+    security,
 )
 from app.services.proposal_renderer import render_proposal
 from app.services.proposal_pdf_service import ProposalPDFService
@@ -178,6 +180,17 @@ async def login(credentials: UserLogin) -> TokenResponse:
             created_at=user.created_at,
         ),
     )
+
+
+@app.post("/auth/logout")
+async def logout(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> dict:
+    """
+    Logout: accepts Bearer token and returns success. Client clears token and redirects.
+    Token is not revoked server-side; it remains valid until expiry.
+    """
+    return {"message": "Successfully logged out"}
 
 
 @app.post("/estimate", response_model=FinalPipelineResponse)

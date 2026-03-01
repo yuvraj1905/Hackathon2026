@@ -14,6 +14,9 @@ export const fmtNum = (n: number): string =>
         minimumFractionDigits: 0,
     });
 
+export const fmtInt = (n: number): string =>
+    Math.round(Number(n)).toLocaleString();
+
 export const calcTotal = (
     t: Pick<SubTask, "frontend" | "backend" | "integration" | "testing">,
 ) => t.frontend + t.backend + (t.integration ?? 0) + t.testing;

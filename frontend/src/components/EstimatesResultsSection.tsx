@@ -1,6 +1,5 @@
 "use client";
 
-import React from "react";
 import { motion } from "framer-motion";
 import type { Module } from "@/types/dashboard";
 import type { ProposalData, ResourceRow, TechRec } from "@/lib/utils";
@@ -19,6 +18,7 @@ export interface EstimatesResultsSectionProps {
   statCards: StatCard[];
   summaryData: { domain: string; platforms?: string[]; totalHours: number; timeline: string; confidence: number };
   proposalData: ProposalData | null;
+  currentProjectId?: string | null;
   techStackStructured?: Record<string, unknown> | null;
   searchQuery: string;
   onSearchChange: (v: string) => void;
@@ -50,6 +50,7 @@ export function EstimatesResultsSection({
   statCards,
   summaryData,
   proposalData,
+  currentProjectId,
   searchQuery,
   onSearchChange,
   modules,
@@ -119,7 +120,7 @@ export function EstimatesResultsSection({
         <TechStackSection techStackStructured={techStackStructured} techStack={techStack} />
       )}
 
-      <EstimateCtaBar />
+      <EstimateCtaBar projectId={currentProjectId} />
     </motion.div>
   );
 }
